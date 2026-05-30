@@ -140,6 +140,8 @@ export default function MetasScreen() {
   const [bPares, setBPares] = useState(String(config.cotaB.pares));
   const [cValor, setCValor] = useState(formatValor(config.cotaC.valor));
   const [cPares, setCPares] = useState(String(config.cotaC.pares));
+  const [altaValor, setAltaValor] = useState(formatValor((config.cotaAlta ?? CONFIG_MES_PADRAO.cotaAlta).valor));
+  const [altaPares, setAltaPares] = useState(String((config.cotaAlta ?? CONFIG_MES_PADRAO.cotaAlta).pares));
   const [saving, setSaving] = useState(false);
 
   const aParesRef = useRef<TextInput>(null);
@@ -147,6 +149,8 @@ export default function MetasScreen() {
   const bParesRef = useRef<TextInput>(null);
   const cValorRef = useRef<TextInput>(null);
   const cParesRef = useRef<TextInput>(null);
+  const altaValorRef = useRef<TextInput>(null);
+  const altaParesRef = useRef<TextInput>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -163,6 +167,7 @@ export default function MetasScreen() {
         cotaA: { valor: parseValor(aValor), pares: parseInt(aPares) || 0 },
         cotaB: { valor: parseValor(bValor), pares: parseInt(bPares) || 0 },
         cotaC: { valor: parseValor(cValor), pares: parseInt(cPares) || 0 },
+        cotaAlta: { valor: parseValor(altaValor), pares: parseInt(altaPares) || 0 },
       });
       router.back();
     } finally {
@@ -177,6 +182,8 @@ export default function MetasScreen() {
     setBPares(String(CONFIG_MES_PADRAO.cotaB.pares));
     setCValor(formatValor(CONFIG_MES_PADRAO.cotaC.valor));
     setCPares(String(CONFIG_MES_PADRAO.cotaC.pares));
+    setAltaValor(formatValor(CONFIG_MES_PADRAO.cotaAlta.valor));
+    setAltaPares(String(CONFIG_MES_PADRAO.cotaAlta.pares));
   };
 
   return (
@@ -256,6 +263,17 @@ export default function MetasScreen() {
           onValorChange={setCValor}
           onParesChange={setCPares}
           paresRef={cParesRef}
+          nextRef={altaValorRef}
+          colors={colors}
+        />
+        <CotaInputGroup
+          label="Cota Alta"
+          cor="#F59E0B"
+          valor={altaValor}
+          pares={altaPares}
+          onValorChange={setAltaValor}
+          onParesChange={setAltaPares}
+          paresRef={altaParesRef}
           colors={colors}
         />
 
@@ -268,7 +286,7 @@ export default function MetasScreen() {
         >
           <Feather name="refresh-ccw" size={14} color={colors.mutedForeground} />
           <Text style={[styles.resetText, { color: colors.mutedForeground }]}>
-            Restaurar padrões (A: 55k/410p · B: 65k/450p · C: 75k/490p)
+            Restaurar padrões (A: 55k/410p · B: 65k/450p · C: 75k/490p · Alta: 90k/550p)
           </Text>
         </Pressable>
       </ScrollView>

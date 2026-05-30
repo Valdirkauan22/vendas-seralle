@@ -24,12 +24,14 @@ export interface ConfigMes {
   cotaA: { valor: number; pares: number };
   cotaB: { valor: number; pares: number };
   cotaC: { valor: number; pares: number };
+  cotaAlta: { valor: number; pares: number };
 }
 
 export const CONFIG_MES_PADRAO: ConfigMes = {
   cotaA: { valor: 55000, pares: 410 },
   cotaB: { valor: 65000, pares: 450 },
   cotaC: { valor: 75000, pares: 490 },
+  cotaAlta: { valor: 90000, pares: 550 },
 };
 
 type DiasMap = Record<string, DiaVenda>;

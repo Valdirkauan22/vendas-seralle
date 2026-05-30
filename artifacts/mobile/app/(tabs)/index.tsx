@@ -231,6 +231,11 @@ export default function ResumoScreen() {
             label="Cota C" valor={total.valor} meta={config.cotaC.valor}
             pares={total.pares} metaPares={config.cotaC.pares} cor="#8B5CF6" colors={colors}
           />
+          <View style={[styles.metaDivider, { backgroundColor: colors.border }]} />
+          <ProgressBar
+            label="Cota Alta" valor={total.valor} meta={config.cotaAlta.valor}
+            pares={total.pares} metaPares={config.cotaAlta.pares} cor="#F59E0B" colors={colors}
+          />
         </View>
 
         {/* Configurar metas */}
