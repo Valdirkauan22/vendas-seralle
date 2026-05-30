@@ -21,17 +21,17 @@ export interface DiaVenda {
 }
 
 export interface ConfigMes {
-  cotaA: { valor: number; pares: number };
-  cotaB: { valor: number; pares: number };
-  cotaC: { valor: number; pares: number };
-  cotaAlta: { valor: number; pares: number };
+  cotaA: { valor: number; pares: number; margem: number };
+  cotaB: { valor: number; pares: number; margem: number };
+  cotaC: { valor: number; pares: number; margem: number };
+  cotaAlta: { valor: number; pares: number; margem: number };
 }
 
 export const CONFIG_MES_PADRAO: ConfigMes = {
-  cotaA: { valor: 55000, pares: 410 },
-  cotaB: { valor: 65000, pares: 450 },
-  cotaC: { valor: 75000, pares: 490 },
-  cotaAlta: { valor: 90000, pares: 550 },
+  cotaA: { valor: 55000, pares: 410, margem: 0 },
+  cotaB: { valor: 65000, pares: 450, margem: 0 },
+  cotaC: { valor: 75000, pares: 490, margem: 0 },
+  cotaAlta: { valor: 90000, pares: 550, margem: 0 },
 };
 
 type DiasMap = Record<string, DiaVenda>;

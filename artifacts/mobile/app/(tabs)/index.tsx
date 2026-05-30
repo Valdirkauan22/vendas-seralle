@@ -31,6 +31,8 @@ function ProgressBar({
   label,
   pares,
   metaPares,
+  metaMargem,
+  margemAtual,
   cor,
   colors,
 }: {
@@ -39,6 +41,8 @@ function ProgressBar({
   label: string;
   pares: number;
   metaPares: number;
+  metaMargem: number;
+  margemAtual: number;
   cor: string;
   colors: ReturnType<typeof useColors>;
 }) {
@@ -60,6 +64,7 @@ function ProgressBar({
         </View>
         <Text style={[styles.cotaValores, { color: colors.mutedForeground }]}>
           {pares}/{metaPares} pares · {formatMoeda(meta)}
+          {metaMargem > 0 ? ` · ${metaMargem}% margem` : ""}
         </Text>
       </View>
       <View style={[styles.progressTrack, { backgroundColor: colors.muted }]}>
@@ -72,11 +77,18 @@ function ProgressBar({
       </View>
       <View style={styles.cotaFooter}>
         <Text style={[styles.cotaPct, { color: cor }]}>{(pct * 100).toFixed(1)}%</Text>
-        {!atingiu && (
-          <Text style={[styles.cotaFalta, { color: colors.mutedForeground }]}>
-            Falta {formatMoeda(falta)}
-          </Text>
-        )}
+        <View style={styles.cotaFooterRight}>
+          {metaMargem > 0 && (
+            <Text style={[styles.cotaMargem, { color: margemAtual >= metaMargem ? cor : colors.mutedForeground }]}>
+              Margem: {margemAtual > 0 ? `${margemAtual.toFixed(1)}%` : "—"}/{metaMargem}%
+            </Text>
+          )}
+          {!atingiu && (
+            <Text style={[styles.cotaFalta, { color: colors.mutedForeground }]}>
+              Falta {formatMoeda(falta)}
+            </Text>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -219,22 +231,30 @@ export default function ResumoScreen() {
           <Text style={[styles.metasTitle, { color: colors.foreground }]}>Metas do Mês</Text>
           <ProgressBar
             label="Cota A" valor={total.valor} meta={config.cotaA.valor}
-            pares={total.pares} metaPares={config.cotaA.pares} cor="#10B981" colors={colors}
+            pares={total.pares} metaPares={config.cotaA.pares}
+            metaMargem={config.cotaA.margem ?? 0} margemAtual={total.margem}
+            cor="#10B981" colors={colors}
           />
           <View style={[styles.metaDivider, { backgroundColor: colors.border }]} />
           <ProgressBar
             label="Cota B" valor={total.valor} meta={config.cotaB.valor}
-            pares={total.pares} metaPares={config.cotaB.pares} cor="#3B82F6" colors={colors}
+            pares={total.pares} metaPares={config.cotaB.pares}
+            metaMargem={config.cotaB.margem ?? 0} margemAtual={total.margem}
+            cor="#3B82F6" colors={colors}
           />
           <View style={[styles.metaDivider, { backgroundColor: colors.border }]} />
           <ProgressBar
             label="Cota C" valor={total.valor} meta={config.cotaC.valor}
-            pares={total.pares} metaPares={config.cotaC.pares} cor="#8B5CF6" colors={colors}
+            pares={total.pares} metaPares={config.cotaC.pares}
+            metaMargem={config.cotaC.margem ?? 0} margemAtual={total.margem}
+            cor="#8B5CF6" colors={colors}
           />
           <View style={[styles.metaDivider, { backgroundColor: colors.border }]} />
           <ProgressBar
             label="Cota Alta" valor={total.valor} meta={config.cotaAlta.valor}
-            pares={total.pares} metaPares={config.cotaAlta.pares} cor="#F59E0B" colors={colors}
+            pares={total.pares} metaPares={config.cotaAlta.pares}
+            metaMargem={config.cotaAlta.margem ?? 0} margemAtual={total.margem}
+            cor="#F59E0B" colors={colors}
           />
         </View>
 
@@ -310,8 +330,10 @@ const styles = StyleSheet.create({
   cotaValores: { fontSize: 12, fontFamily: "Inter_400Regular", paddingLeft: 16 },
   progressTrack: { height: 8, borderRadius: 4, overflow: "hidden" },
   progressFill: { height: "100%", borderRadius: 4 },
-  cotaFooter: { flexDirection: "row", justifyContent: "space-between" },
+  cotaFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  cotaFooterRight: { alignItems: "flex-end", gap: 2 },
   cotaPct: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  cotaMargem: { fontSize: 11, fontFamily: "Inter_500Medium" },
   cotaFalta: { fontSize: 11, fontFamily: "Inter_400Regular" },
   metaDivider: { height: StyleSheet.hairlineWidth },
   configBtn: {

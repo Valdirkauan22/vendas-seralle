@@ -30,9 +30,12 @@ interface CotaInputGroupProps {
   cor: string;
   valor: string;
   pares: string;
+  margem: string;
   onValorChange: (v: string) => void;
   onParesChange: (v: string) => void;
+  onMargemChange: (v: string) => void;
   paresRef?: React.RefObject<TextInput | null>;
+  margemRef?: React.RefObject<TextInput | null>;
   nextRef?: React.RefObject<TextInput | null>;
   colors: ReturnType<typeof useColors>;
 }
@@ -42,14 +45,18 @@ function CotaInputGroup({
   cor,
   valor,
   pares,
+  margem,
   onValorChange,
   onParesChange,
+  onMargemChange,
   paresRef,
+  margemRef,
   nextRef,
   colors,
 }: CotaInputGroupProps) {
   const [focusValor, setFocusValor] = useState(false);
   const [focusPares, setFocusPares] = useState(false);
+  const [focusMargem, setFocusMargem] = useState(false);
 
   const handleValorChange = (text: string) => {
     const digits = text.replace(/\D/g, "");
@@ -114,11 +121,43 @@ function CotaInputGroup({
               placeholderTextColor={colors.mutedForeground}
               keyboardType="numeric"
               returnKeyType="next"
-              onSubmitEditing={() => nextRef?.current?.focus()}
+              onSubmitEditing={() => margemRef?.current?.focus()}
               onFocus={() => setFocusPares(true)}
               onBlur={() => setFocusPares(false)}
               selectTextOnFocus
             />
+          </View>
+        </View>
+        <View style={[styles.cotaField, styles.cotaFieldSmall]}>
+          <Text style={[styles.inputLabel, { color: colors.mutedForeground }]}>Margem (%)</Text>
+          <View
+            style={[
+              styles.inputWrap,
+              {
+                backgroundColor: colors.card,
+                borderColor: focusMargem ? cor : colors.border,
+                borderWidth: focusMargem ? 1.5 : 1,
+              },
+            ]}
+          >
+            <TextInput
+              ref={margemRef}
+              style={[styles.input, { color: colors.foreground }]}
+              value={margem}
+              onChangeText={(t) => {
+                const clean = t.replace(/[^0-9]/g, "");
+                onMargemChange(clean);
+              }}
+              placeholder="0"
+              placeholderTextColor={colors.mutedForeground}
+              keyboardType="numeric"
+              returnKeyType="next"
+              onSubmitEditing={() => nextRef?.current?.focus()}
+              onFocus={() => setFocusMargem(true)}
+              onBlur={() => setFocusMargem(false)}
+              selectTextOnFocus
+            />
+            <Text style={[styles.prefix, { color: colors.mutedForeground }]}>%</Text>
           </View>
         </View>
       </View>
@@ -136,21 +175,29 @@ export default function MetasScreen() {
 
   const [aValor, setAValor] = useState(formatValor(config.cotaA.valor));
   const [aPares, setAPares] = useState(String(config.cotaA.pares));
+  const [aMargem, setAMargem] = useState(String(config.cotaA.margem ?? 0));
   const [bValor, setBValor] = useState(formatValor(config.cotaB.valor));
   const [bPares, setBPares] = useState(String(config.cotaB.pares));
+  const [bMargem, setBMargem] = useState(String(config.cotaB.margem ?? 0));
   const [cValor, setCValor] = useState(formatValor(config.cotaC.valor));
   const [cPares, setCPares] = useState(String(config.cotaC.pares));
+  const [cMargem, setCMargem] = useState(String(config.cotaC.margem ?? 0));
   const [altaValor, setAltaValor] = useState(formatValor((config.cotaAlta ?? CONFIG_MES_PADRAO.cotaAlta).valor));
   const [altaPares, setAltaPares] = useState(String((config.cotaAlta ?? CONFIG_MES_PADRAO.cotaAlta).pares));
+  const [altaMargem, setAltaMargem] = useState(String((config.cotaAlta ?? CONFIG_MES_PADRAO.cotaAlta).margem ?? 0));
   const [saving, setSaving] = useState(false);
 
   const aParesRef = useRef<TextInput>(null);
+  const aMargemRef = useRef<TextInput>(null);
   const bValorRef = useRef<TextInput>(null);
   const bParesRef = useRef<TextInput>(null);
+  const bMargemRef = useRef<TextInput>(null);
   const cValorRef = useRef<TextInput>(null);
   const cParesRef = useRef<TextInput>(null);
+  const cMargemRef = useRef<TextInput>(null);
   const altaValorRef = useRef<TextInput>(null);
   const altaParesRef = useRef<TextInput>(null);
+  const altaMargemRef = useRef<TextInput>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -164,10 +211,10 @@ export default function MetasScreen() {
     setSaving(true);
     try {
       await salvarConfigMes(mesId, {
-        cotaA: { valor: parseValor(aValor), pares: parseInt(aPares) || 0 },
-        cotaB: { valor: parseValor(bValor), pares: parseInt(bPares) || 0 },
-        cotaC: { valor: parseValor(cValor), pares: parseInt(cPares) || 0 },
-        cotaAlta: { valor: parseValor(altaValor), pares: parseInt(altaPares) || 0 },
+        cotaA: { valor: parseValor(aValor), pares: parseInt(aPares) || 0, margem: parseInt(aMargem) || 0 },
+        cotaB: { valor: parseValor(bValor), pares: parseInt(bPares) || 0, margem: parseInt(bMargem) || 0 },
+        cotaC: { valor: parseValor(cValor), pares: parseInt(cPares) || 0, margem: parseInt(cMargem) || 0 },
+        cotaAlta: { valor: parseValor(altaValor), pares: parseInt(altaPares) || 0, margem: parseInt(altaMargem) || 0 },
       });
       router.back();
     } finally {
@@ -178,12 +225,16 @@ export default function MetasScreen() {
   const handleReset = () => {
     setAValor(formatValor(CONFIG_MES_PADRAO.cotaA.valor));
     setAPares(String(CONFIG_MES_PADRAO.cotaA.pares));
+    setAMargem(String(CONFIG_MES_PADRAO.cotaA.margem));
     setBValor(formatValor(CONFIG_MES_PADRAO.cotaB.valor));
     setBPares(String(CONFIG_MES_PADRAO.cotaB.pares));
+    setBMargem(String(CONFIG_MES_PADRAO.cotaB.margem));
     setCValor(formatValor(CONFIG_MES_PADRAO.cotaC.valor));
     setCPares(String(CONFIG_MES_PADRAO.cotaC.pares));
+    setCMargem(String(CONFIG_MES_PADRAO.cotaC.margem));
     setAltaValor(formatValor(CONFIG_MES_PADRAO.cotaAlta.valor));
     setAltaPares(String(CONFIG_MES_PADRAO.cotaAlta.pares));
+    setAltaMargem(String(CONFIG_MES_PADRAO.cotaAlta.margem));
   };
 
   return (
@@ -230,7 +281,7 @@ export default function MetasScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={[styles.desc, { color: colors.mutedForeground }]}>
-          Defina o valor e os pares para cada nível de meta mensal.
+          Defina o valor, os pares e a margem (%) para cada nível de meta mensal.
         </Text>
 
         <CotaInputGroup
@@ -238,9 +289,12 @@ export default function MetasScreen() {
           cor="#10B981"
           valor={aValor}
           pares={aPares}
+          margem={aMargem}
           onValorChange={setAValor}
           onParesChange={setAPares}
+          onMargemChange={setAMargem}
           paresRef={aParesRef}
+          margemRef={aMargemRef}
           nextRef={bValorRef}
           colors={colors}
         />
@@ -249,9 +303,12 @@ export default function MetasScreen() {
           cor="#3B82F6"
           valor={bValor}
           pares={bPares}
+          margem={bMargem}
           onValorChange={setBValor}
           onParesChange={setBPares}
+          onMargemChange={setBMargem}
           paresRef={bParesRef}
+          margemRef={bMargemRef}
           nextRef={cValorRef}
           colors={colors}
         />
@@ -260,9 +317,12 @@ export default function MetasScreen() {
           cor="#8B5CF6"
           valor={cValor}
           pares={cPares}
+          margem={cMargem}
           onValorChange={setCValor}
           onParesChange={setCPares}
+          onMargemChange={setCMargem}
           paresRef={cParesRef}
+          margemRef={cMargemRef}
           nextRef={altaValorRef}
           colors={colors}
         />
@@ -271,9 +331,12 @@ export default function MetasScreen() {
           cor="#F59E0B"
           valor={altaValor}
           pares={altaPares}
+          margem={altaMargem}
           onValorChange={setAltaValor}
           onParesChange={setAltaPares}
+          onMargemChange={setAltaMargem}
           paresRef={altaParesRef}
+          margemRef={altaMargemRef}
           colors={colors}
         />
 
@@ -322,6 +385,7 @@ const styles = StyleSheet.create({
   cotaGroupLabel: { fontSize: 16, fontFamily: "Inter_700Bold" },
   cotaRow: { flexDirection: "row", gap: 12 },
   cotaField: { flex: 1, gap: 6 },
+  cotaFieldSmall: { flex: 0.75 },
   inputLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
   inputWrap: {
     flexDirection: "row",
