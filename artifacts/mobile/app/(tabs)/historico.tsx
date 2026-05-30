@@ -1,187 +1,153 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useState } from "react";
 import {
-  FlatList,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useVendas, type Venda } from "@/context/VendasContext";
+import {
+  diasNoMes,
+  getMesId,
+  getHojeStr,
+  nomeMes,
+  primeiroDiaSemana,
+  useVendas,
+} from "@/context/VendasContext";
 import { useColors } from "@/hooks/useColors";
 
-function formatMoeda(valor: number): string {
-  return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
+
+function formatMoeda(v: number) {
+  if (v >= 1000)
+    return `R$${(v / 1000).toFixed(1).replace(".", ",")}k`;
+  return `R$${v.toLocaleString("pt-BR")}`;
 }
 
-function formatDataLabel(data: string): string {
-  const [y, m, d] = data.split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  const hoje = new Date();
-  const ontem = new Date();
-  ontem.setDate(hoje.getDate() - 1);
-
-  const isHoje =
-    dt.getDate() === hoje.getDate() &&
-    dt.getMonth() === hoje.getMonth() &&
-    dt.getFullYear() === hoje.getFullYear();
-  const isOntem =
-    dt.getDate() === ontem.getDate() &&
-    dt.getMonth() === ontem.getMonth() &&
-    dt.getFullYear() === ontem.getFullYear();
-
-  if (isHoje) return "Hoje";
-  if (isOntem) return "Ontem";
-
-  return dt.toLocaleDateString("pt-BR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-}
-
-interface DiaGroup {
+interface CelulaDiaProps {
+  dia: number;
   data: string;
-  vendas: Venda[];
-  total: number;
-}
-
-function VendaMiniItem({
-  venda,
-  onPress,
-  colors,
-}: {
-  venda: Venda;
+  isHoje: boolean;
+  isHojeMes: boolean;
+  temDado: boolean;
+  valor: number;
+  pares: number;
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
-}) {
-  const total = venda.valor * venda.quantidade;
+}
+
+function CelulaDia({ dia, isHoje, temDado, valor, pares, onPress, colors }: CelulaDiaProps) {
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
-        styles.miniItem,
+        styles.celula,
         {
-          opacity: pressed ? 0.7 : 1,
+          backgroundColor: isHoje
+            ? colors.primary
+            : temDado
+            ? colors.accent
+            : colors.card,
+          borderColor: isHoje
+            ? colors.primary
+            : temDado
+            ? colors.secondary
+            : colors.border,
+          opacity: pressed ? 0.75 : 1,
         },
       ]}
     >
-      <View style={styles.miniItemLeft}>
+      <Text
+        style={[
+          styles.celulaDia,
+          {
+            color: isHoje
+              ? "#fff"
+              : temDado
+              ? colors.primaryForeground === "#FFFFFF" ? colors.primary : colors.foreground
+              : colors.mutedForeground,
+            fontFamily: isHoje ? "Inter_700Bold" : "Inter_500Medium",
+          },
+        ]}
+      >
+        {dia}
+      </Text>
+      {temDado && (
         <Text
-          style={[styles.miniProduto, { color: colors.foreground }]}
+          style={[
+            styles.celulaValor,
+            { color: isHoje ? "rgba(255,255,255,0.85)" : colors.primary },
+          ]}
           numberOfLines={1}
         >
-          {venda.produto}
+          {formatMoeda(valor)}
         </Text>
-        {venda.cliente ? (
-          <Text
-            style={[styles.miniCliente, { color: colors.mutedForeground }]}
-            numberOfLines={1}
-          >
-            {venda.cliente}
-          </Text>
-        ) : null}
-      </View>
-      <Text style={[styles.miniValor, { color: colors.primary }]}>
-        {formatMoeda(total)}
-      </Text>
+      )}
+      {temDado && pares > 0 && (
+        <Text
+          style={[
+            styles.celulaPares,
+            { color: isHoje ? "rgba(255,255,255,0.7)" : colors.mutedForeground },
+          ]}
+        >
+          {pares}p
+        </Text>
+      )}
     </Pressable>
   );
 }
 
-function DiaCard({
-  group,
-  colors,
-}: {
-  group: DiaGroup;
-  colors: ReturnType<typeof useColors>;
-}) {
-  const handleVenda = useCallback((id: string) => {
-    Haptics.selectionAsync();
-    router.push(`/venda/${id}`);
-  }, []);
-
-  return (
-    <View
-      style={[
-        styles.diaCard,
-        { backgroundColor: colors.card, borderColor: colors.border },
-      ]}
-    >
-      <View style={styles.diaHeader}>
-        <View style={styles.diaHeaderLeft}>
-          <Text
-            style={[styles.diaLabel, { color: colors.foreground }]}
-          >
-            {formatDataLabel(group.data)}
-          </Text>
-          <Text style={[styles.diaCount, { color: colors.mutedForeground }]}>
-            {group.vendas.length} {group.vendas.length === 1 ? "venda" : "vendas"}
-          </Text>
-        </View>
-        <Text style={[styles.diaTotal, { color: colors.primary }]}>
-          {formatMoeda(group.total)}
-        </Text>
-      </View>
-
-      <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-      {group.vendas.map((v, i) => (
-        <React.Fragment key={v.id}>
-          <VendaMiniItem
-            venda={v}
-            onPress={() => handleVenda(v.id)}
-            colors={colors}
-          />
-          {i < group.vendas.length - 1 && (
-            <View
-              style={[
-                styles.miniDivider,
-                { backgroundColor: colors.border },
-              ]}
-            />
-          )}
-        </React.Fragment>
-      ))}
-    </View>
-  );
-}
-
-export default function HistoricoScreen() {
+export default function CalendarioScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { vendas } = useVendas();
+  const { getDia, getTotalMes } = useVendas();
 
-  const topPadding = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPadding = Platform.OS === "web" ? 34 + 84 : insets.bottom + 80;
+  const now = new Date();
+  const [ano, setAno] = useState(now.getFullYear());
+  const [mes, setMes] = useState(now.getMonth() + 1);
 
-  const groups = useMemo<DiaGroup[]>(() => {
-    const map = new Map<string, Venda[]>();
-    for (const v of vendas) {
-      if (!map.has(v.data)) map.set(v.data, []);
-      map.get(v.data)!.push(v);
-    }
-    const result: DiaGroup[] = [];
-    for (const [data, vs] of map) {
-      const sortedVs = [...vs].sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-      const total = vs.reduce((acc, v) => acc + v.valor * v.quantidade, 0);
-      result.push({ data, vendas: sortedVs, total });
-    }
-    return result.sort((a, b) => b.data.localeCompare(a.data));
-  }, [vendas]);
+  const mesId = getMesId(ano, mes);
+  const totalDias = diasNoMes(ano, mes);
+  const primeiroSemana = primeiroDiaSemana(ano, mes);
+  const hoje = getHojeStr();
+  const total = getTotalMes(mesId);
 
-  const totalGeral = useMemo(
-    () => groups.reduce((acc, g) => acc + g.total, 0),
-    [groups]
+  const topPad = Platform.OS === "web" ? 67 : insets.top;
+  const bottomPad = Platform.OS === "web" ? 34 + 84 : insets.bottom + 80;
+
+  const handlePrev = useCallback(() => {
+    Haptics.selectionAsync();
+    if (mes === 1) { setMes(12); setAno((a) => a - 1); }
+    else setMes((m) => m - 1);
+  }, [mes]);
+
+  const handleNext = useCallback(() => {
+    Haptics.selectionAsync();
+    if (mes === 12) { setMes(1); setAno((a) => a + 1); }
+    else setMes((m) => m + 1);
+  }, [mes]);
+
+  const handleDia = useCallback(
+    (d: number) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const data = `${ano}-${String(mes).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      router.push(`/dia/${data}`);
+    },
+    [ano, mes]
   );
+
+  // Build grid cells (blanks + days)
+  const cells: Array<{ dia: number | null }> = [];
+  for (let i = 0; i < primeiroSemana; i++) cells.push({ dia: null });
+  for (let d = 1; d <= totalDias; d++) cells.push({ dia: d });
+  // Pad to complete last row
+  while (cells.length % 7 !== 0) cells.push({ dia: null });
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -189,50 +155,135 @@ export default function HistoricoScreen() {
         style={[
           styles.header,
           {
-            paddingTop: topPadding + 16,
+            paddingTop: topPad + 12,
             backgroundColor: colors.background,
             borderBottomColor: colors.border,
           },
         ]}
       >
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>
-          Histórico
-        </Text>
-        {groups.length > 0 && (
-          <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>
-            {groups.length} {groups.length === 1 ? "dia" : "dias"} · {formatMoeda(totalGeral)} total
+        <Pressable
+          onPress={handlePrev}
+          style={({ pressed }) => [styles.navArrow, { opacity: pressed ? 0.5 : 1 }]}
+        >
+          <Feather name="chevron-left" size={22} color={colors.foreground} />
+        </Pressable>
+        <View style={styles.headerCenter}>
+          <Text style={[styles.headerMes, { color: colors.foreground }]}>
+            {nomeMes(mes)}
           </Text>
-        )}
+          <Text style={[styles.headerAno, { color: colors.mutedForeground }]}>
+            {ano}
+          </Text>
+        </View>
+        <Pressable
+          onPress={handleNext}
+          style={({ pressed }) => [styles.navArrow, { opacity: pressed ? 0.5 : 1 }]}
+        >
+          <Feather name="chevron-right" size={22} color={colors.foreground} />
+        </Pressable>
       </View>
 
-      <FlatList
-        data={groups}
-        keyExtractor={(item) => item.data}
+      <ScrollView
         contentContainerStyle={[
-          styles.listContent,
-          { paddingBottom: bottomPadding },
+          styles.scroll,
+          { paddingBottom: bottomPad + 16 },
         ]}
         showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <View
-              style={[styles.emptyIcon, { backgroundColor: colors.accent }]}
-            >
-              <Feather name="bar-chart-2" size={32} color={colors.primary} />
+      >
+        {/* Resumo rápido */}
+        {total.dias > 0 && (
+          <View
+            style={[
+              styles.resumoStrip,
+              { backgroundColor: colors.accent, borderColor: colors.secondary },
+            ]}
+          >
+            <View style={styles.resumoItem}>
+              <Text style={[styles.resumoVal, { color: colors.primary }]}>
+                {total.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+              </Text>
+              <Text style={[styles.resumoLabel, { color: colors.mutedForeground }]}>
+                Venda Mensal
+              </Text>
             </View>
-            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
-              Nenhum histórico ainda
-            </Text>
-            <Text
-              style={[styles.emptySubtitle, { color: colors.mutedForeground }]}
-            >
-              Suas vendas aparecerão aqui organizadas por dia
-            </Text>
+            <View style={[styles.resumoDivider, { backgroundColor: colors.border }]} />
+            <View style={styles.resumoItem}>
+              <Text style={[styles.resumoVal, { color: colors.primary }]}>
+                {total.pares}
+              </Text>
+              <Text style={[styles.resumoLabel, { color: colors.mutedForeground }]}>
+                Pares
+              </Text>
+            </View>
+            <View style={[styles.resumoDivider, { backgroundColor: colors.border }]} />
+            <View style={styles.resumoItem}>
+              <Text style={[styles.resumoVal, { color: colors.primary }]}>
+                {total.dias}
+              </Text>
+              <Text style={[styles.resumoLabel, { color: colors.mutedForeground }]}>
+                Dias
+              </Text>
+            </View>
           </View>
-        }
-        renderItem={({ item }) => <DiaCard group={item} colors={colors} />}
-        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-      />
+        )}
+
+        {/* Cabeçalho dias da semana */}
+        <View style={[styles.semanaRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {DIAS_SEMANA.map((d, i) => (
+            <View key={i} style={styles.semanaCell}>
+              <Text style={[styles.semanaLabel, { color: colors.mutedForeground }]}>
+                {d}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Grade do calendário */}
+        <View
+          style={[
+            styles.grade,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          {Array.from({ length: Math.ceil(cells.length / 7) }).map((_, row) => (
+            <View key={row} style={styles.gradeRow}>
+              {cells.slice(row * 7, row * 7 + 7).map((cell, col) => {
+                if (cell.dia === null) {
+                  return <View key={col} style={styles.celulaVazia} />;
+                }
+                const data = `${ano}-${String(mes).padStart(2, "0")}-${String(cell.dia).padStart(2, "0")}`;
+                const diaData = getDia(data);
+                const isHoje = data === hoje;
+                return (
+                  <CelulaDia
+                    key={col}
+                    dia={cell.dia}
+                    data={data}
+                    isHoje={isHoje}
+                    isHojeMes={ano === now.getFullYear() && mes === now.getMonth() + 1}
+                    temDado={!!diaData}
+                    valor={diaData?.valor ?? 0}
+                    pares={diaData?.pares ?? 0}
+                    onPress={() => handleDia(cell.dia!)}
+                    colors={colors}
+                  />
+                );
+              })}
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.legendaRow}>
+          <View style={[styles.legendaDot, { backgroundColor: colors.primary }]} />
+          <Text style={[styles.legendaText, { color: colors.mutedForeground }]}>
+            Hoje
+          </Text>
+          <View style={[styles.legendaDot, { backgroundColor: colors.accent, borderWidth: 1, borderColor: colors.secondary }]} />
+          <Text style={[styles.legendaText, { color: colors.mutedForeground }]}>
+            Com lançamento
+          </Text>
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -240,92 +291,74 @@ export default function HistoricoScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
-    paddingHorizontal: 20,
-    paddingBottom: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 8,
+    paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontFamily: "Inter_700Bold",
+  navArrow: { padding: 10 },
+  headerCenter: { alignItems: "center" },
+  headerMes: { fontSize: 20, fontFamily: "Inter_700Bold" },
+  headerAno: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 1 },
+  scroll: { padding: 12, gap: 10 },
+  resumoStrip: {
+    flexDirection: "row",
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    alignItems: "center",
+    justifyContent: "space-around",
   },
-  headerSub: {
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
-    marginTop: 2,
+  resumoItem: { alignItems: "center", flex: 1 },
+  resumoVal: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  resumoLabel: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
+  resumoDivider: { width: 1, height: 32 },
+  semanaRow: {
+    flexDirection: "row",
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: 8,
   },
-  listContent: { padding: 16, paddingTop: 12 },
-  diaCard: {
+  semanaCell: { flex: 1, alignItems: "center" },
+  semanaLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  grade: {
     borderRadius: 14,
     borderWidth: 1,
     overflow: "hidden",
+    padding: 4,
+    gap: 4,
   },
-  diaHeader: {
+  gradeRow: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: 14,
+    gap: 4,
   },
-  diaHeaderLeft: { flex: 1 },
-  diaLabel: {
-    fontSize: 15,
-    fontFamily: "Inter_600SemiBold",
-    textTransform: "capitalize",
-  },
-  diaCount: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    marginTop: 2,
-  },
-  diaTotal: {
-    fontSize: 17,
-    fontFamily: "Inter_700Bold",
-  },
-  divider: { height: StyleSheet.hairlineWidth, marginHorizontal: 14 },
-  miniItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-  },
-  miniItemLeft: { flex: 1, marginRight: 8 },
-  miniProduto: {
-    fontSize: 14,
-    fontFamily: "Inter_500Medium",
-  },
-  miniCliente: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    marginTop: 1,
-  },
-  miniValor: {
-    fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
-  },
-  miniDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 14 },
-  emptyContainer: {
-    alignItems: "center",
-    paddingTop: 64,
-    paddingHorizontal: 32,
-  },
-  emptyIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+  celula: {
+    flex: 1,
+    aspectRatio: 0.9,
+    borderRadius: 8,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    padding: 3,
+    minHeight: 52,
   },
-  emptyTitle: {
-    fontSize: 18,
-    fontFamily: "Inter_600SemiBold",
-    marginBottom: 8,
-    textAlign: "center",
+  celulaDia: { fontSize: 13 },
+  celulaValor: { fontSize: 9, fontFamily: "Inter_600SemiBold", marginTop: 1 },
+  celulaPares: { fontSize: 9, fontFamily: "Inter_400Regular" },
+  celulaVazia: {
+    flex: 1,
+    aspectRatio: 0.9,
+    minHeight: 52,
   },
-  emptySubtitle: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-    textAlign: "center",
-    lineHeight: 20,
+  legendaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    justifyContent: "center",
+    paddingVertical: 4,
   },
+  legendaDot: { width: 10, height: 10, borderRadius: 5 },
+  legendaText: { fontSize: 12, fontFamily: "Inter_400Regular", marginRight: 8 },
 });

@@ -13,12 +13,12 @@ function NativeTabLayout() {
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>Hoje</Label>
+        <Icon sf={{ default: "chart.bar", selected: "chart.bar.fill" }} />
+        <Label>Resumo</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="historico">
-        <Icon sf={{ default: "chart.bar", selected: "chart.bar.fill" }} />
-        <Label>Histórico</Label>
+        <Icon sf={{ default: "calendar", selected: "calendar.badge.checkmark" }} />
+        <Label>Calendário</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -54,10 +54,7 @@ function ClassicTabLayout() {
             />
           ) : (
             <View
-              style={[
-                StyleSheet.absoluteFill,
-                { backgroundColor: colors.card },
-              ]}
+              style={[StyleSheet.absoluteFill, { backgroundColor: colors.card }]}
             />
           ),
         tabBarLabelStyle: {
@@ -70,24 +67,24 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Hoje",
+          title: "Resumo",
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="house.fill" tintColor={color} size={22} />
+              <SymbolView name="chart.bar.fill" tintColor={color} size={22} />
             ) : (
-              <Feather name="home" size={22} color={color} />
+              <Feather name="bar-chart-2" size={22} color={color} />
             ),
         }}
       />
       <Tabs.Screen
         name="historico"
         options={{
-          title: "Histórico",
+          title: "Calendário",
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="chart.bar.fill" tintColor={color} size={22} />
+              <SymbolView name="calendar" tintColor={color} size={22} />
             ) : (
-              <Feather name="bar-chart-2" size={22} color={color} />
+              <Feather name="calendar" size={22} color={color} />
             ),
         }}
       />

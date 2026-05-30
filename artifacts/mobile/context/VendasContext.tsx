@@ -7,55 +7,59 @@ import React, {
   useState,
 } from "react";
 
-export interface Venda {
-  id: string;
-  data: string;
-  cliente: string;
-  produto: string;
+export interface DiaVenda {
   valor: number;
-  quantidade: number;
-  observacoes: string;
-  createdAt: string;
+  pares: number;
+  margem: number;
 }
+
+export interface ConfigMes {
+  cotaA: { valor: number; pares: number };
+  cotaB: { valor: number; pares: number };
+  cotaC: { valor: number; pares: number };
+}
+
+export const CONFIG_MES_PADRAO: ConfigMes = {
+  cotaA: { valor: 55000, pares: 410 },
+  cotaB: { valor: 65000, pares: 450 },
+  cotaC: { valor: 75000, pares: 490 },
+};
+
+type DiasMap = Record<string, DiaVenda>;
+type ConfigMap = Record<string, ConfigMes>;
 
 interface VendasContextType {
-  vendas: Venda[];
+  dias: DiasMap;
+  configs: ConfigMap;
   loading: boolean;
-  adicionarVenda: (venda: Omit<Venda, "id" | "createdAt">) => Promise<void>;
-  atualizarVenda: (id: string, venda: Partial<Omit<Venda, "id" | "createdAt">>) => Promise<void>;
-  removerVenda: (id: string) => Promise<void>;
-  vendasPorData: (data: string) => Venda[];
-  vendasDeHoje: () => Venda[];
-  totalPorData: (data: string) => number;
+  salvarDia: (data: string, dia: DiaVenda) => Promise<void>;
+  removerDia: (data: string) => Promise<void>;
+  getDia: (data: string) => DiaVenda | null;
+  getConfigMes: (mesId: string) => ConfigMes;
+  salvarConfigMes: (mesId: string, config: ConfigMes) => Promise<void>;
+  getDiasMes: (mesId: string) => Array<{ data: string; dia: DiaVenda }>;
+  getTotalMes: (mesId: string) => { valor: number; pares: number; margem: number; dias: number };
 }
 
-const STORAGE_KEY = "@diario_vendas:vendas";
+const STORAGE_DIAS = "@diario_vendas:dias_v2";
+const STORAGE_CONFIGS = "@diario_vendas:configs_v2";
 
 const VendasContext = createContext<VendasContextType | null>(null);
 
-function getHoje(): string {
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function gerarId(): string {
-  return Date.now().toString() + Math.random().toString(36).substr(2, 9);
-}
-
 export function VendasProvider({ children }: { children: React.ReactNode }) {
-  const [vendas, setVendas] = useState<Venda[]>([]);
+  const [dias, setDias] = useState<DiasMap>({});
+  const [configs, setConfigs] = useState<ConfigMap>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          setVendas(JSON.parse(raw));
-        }
+        const [rawDias, rawConfigs] = await Promise.all([
+          AsyncStorage.getItem(STORAGE_DIAS),
+          AsyncStorage.getItem(STORAGE_CONFIGS),
+        ]);
+        if (rawDias) setDias(JSON.parse(rawDias));
+        if (rawConfigs) setConfigs(JSON.parse(rawConfigs));
       } catch {
         // ignore
       } finally {
@@ -64,71 +68,81 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  const salvar = useCallback(async (novasVendas: Venda[]) => {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(novasVendas));
-    setVendas(novasVendas);
-  }, []);
-
-  const adicionarVenda = useCallback(
-    async (venda: Omit<Venda, "id" | "createdAt">) => {
-      const nova: Venda = {
-        ...venda,
-        id: gerarId(),
-        createdAt: new Date().toISOString(),
-      };
-      const atualizado = [nova, ...vendas];
-      await salvar(atualizado);
+  const salvarDia = useCallback(
+    async (data: string, dia: DiaVenda) => {
+      const novo = { ...dias, [data]: dia };
+      await AsyncStorage.setItem(STORAGE_DIAS, JSON.stringify(novo));
+      setDias(novo);
     },
-    [vendas, salvar]
+    [dias]
   );
 
-  const atualizarVenda = useCallback(
-    async (id: string, dados: Partial<Omit<Venda, "id" | "createdAt">>) => {
-      const atualizado = vendas.map((v) =>
-        v.id === id ? { ...v, ...dados } : v
-      );
-      await salvar(atualizado);
+  const removerDia = useCallback(
+    async (data: string) => {
+      const novo = { ...dias };
+      delete novo[data];
+      await AsyncStorage.setItem(STORAGE_DIAS, JSON.stringify(novo));
+      setDias(novo);
     },
-    [vendas, salvar]
+    [dias]
   );
 
-  const removerVenda = useCallback(
-    async (id: string) => {
-      const atualizado = vendas.filter((v) => v.id !== id);
-      await salvar(atualizado);
+  const getDia = useCallback(
+    (data: string): DiaVenda | null => dias[data] ?? null,
+    [dias]
+  );
+
+  const getConfigMes = useCallback(
+    (mesId: string): ConfigMes => configs[mesId] ?? CONFIG_MES_PADRAO,
+    [configs]
+  );
+
+  const salvarConfigMes = useCallback(
+    async (mesId: string, config: ConfigMes) => {
+      const novo = { ...configs, [mesId]: config };
+      await AsyncStorage.setItem(STORAGE_CONFIGS, JSON.stringify(novo));
+      setConfigs(novo);
     },
-    [vendas, salvar]
+    [configs]
   );
 
-  const vendasPorData = useCallback(
-    (data: string) => vendas.filter((v) => v.data === data),
-    [vendas]
+  const getDiasMes = useCallback(
+    (mesId: string): Array<{ data: string; dia: DiaVenda }> => {
+      return Object.entries(dias)
+        .filter(([data]) => data.startsWith(mesId))
+        .map(([data, dia]) => ({ data, dia }))
+        .sort((a, b) => a.data.localeCompare(b.data));
+    },
+    [dias]
   );
 
-  const vendasDeHoje = useCallback(
-    () => vendas.filter((v) => v.data === getHoje()),
-    [vendas]
-  );
-
-  const totalPorData = useCallback(
-    (data: string) =>
-      vendas
-        .filter((v) => v.data === data)
-        .reduce((acc, v) => acc + v.valor * v.quantidade, 0),
-    [vendas]
+  const getTotalMes = useCallback(
+    (mesId: string) => {
+      const entr = getDiasMes(mesId);
+      let valor = 0, pares = 0, margem = 0, qtd = 0;
+      for (const { dia } of entr) {
+        valor += dia.valor;
+        pares += dia.pares;
+        if (dia.margem > 0) { margem += dia.margem; qtd++; }
+      }
+      return { valor, pares, margem: qtd > 0 ? margem / qtd : 0, dias: entr.length };
+    },
+    [getDiasMes]
   );
 
   return (
     <VendasContext.Provider
       value={{
-        vendas,
+        dias,
+        configs,
         loading,
-        adicionarVenda,
-        atualizarVenda,
-        removerVenda,
-        vendasPorData,
-        vendasDeHoje,
-        totalPorData,
+        salvarDia,
+        removerDia,
+        getDia,
+        getConfigMes,
+        salvarConfigMes,
+        getDiasMes,
+        getTotalMes,
       }}
     >
       {children}
@@ -142,4 +156,33 @@ export function useVendas() {
   return ctx;
 }
 
-export { getHoje };
+export function getMesId(ano: number, mes: number): string {
+  return `${ano}-${String(mes).padStart(2, "0")}`;
+}
+
+export function getHojeStr(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+export function getMesAtualId(): string {
+  const now = new Date();
+  return getMesId(now.getFullYear(), now.getMonth() + 1);
+}
+
+const MESES_PT = [
+  "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+  "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro",
+];
+
+export function nomeMes(mes: number): string {
+  return MESES_PT[mes - 1] ?? "";
+}
+
+export function diasNoMes(ano: number, mes: number): number {
+  return new Date(ano, mes, 0).getDate();
+}
+
+export function primeiroDiaSemana(ano: number, mes: number): number {
+  return new Date(ano, mes - 1, 1).getDay();
+}
