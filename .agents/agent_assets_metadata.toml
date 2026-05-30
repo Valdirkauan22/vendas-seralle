@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "HqvtGFpUlfqU4kMJxs1n2"
+uri = "file://artifacts/mobile/assets/images/icon.png"
+type = "image"
+title = "sales diary app icon"
