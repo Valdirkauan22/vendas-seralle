@@ -24,7 +24,7 @@ import { useColors } from "@/hooks/useColors";
 
 const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
 
-function formatMoeda(v: number) {
+function formatMoedaCompacto(v: number) {
   if (v >= 1000)
     return `R$${(v / 1000).toFixed(1).replace(".", ",")}k`;
   return `R$${v.toLocaleString("pt-BR")}`;
@@ -32,17 +32,16 @@ function formatMoeda(v: number) {
 
 interface CelulaDiaProps {
   dia: number;
-  data: string;
   isHoje: boolean;
-  isHojeMes: boolean;
   temDado: boolean;
   valor: number;
   pares: number;
+  qtd: number;
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
 }
 
-function CelulaDia({ dia, isHoje, temDado, valor, pares, onPress, colors }: CelulaDiaProps) {
+function CelulaDia({ dia, isHoje, temDado, valor, pares, qtd, onPress, colors }: CelulaDiaProps) {
   return (
     <Pressable
       onPress={onPress}
@@ -67,12 +66,8 @@ function CelulaDia({ dia, isHoje, temDado, valor, pares, onPress, colors }: Celu
         style={[
           styles.celulaDia,
           {
-            color: isHoje
-              ? "#fff"
-              : temDado
-              ? colors.primaryForeground === "#FFFFFF" ? colors.primary : colors.foreground
-              : colors.mutedForeground,
-            fontFamily: isHoje ? "Inter_700Bold" : "Inter_500Medium",
+            color: isHoje ? "#fff" : temDado ? colors.primary : colors.mutedForeground,
+            fontFamily: isHoje || temDado ? "Inter_700Bold" : "Inter_400Regular",
           },
         ]}
       >
@@ -82,11 +77,11 @@ function CelulaDia({ dia, isHoje, temDado, valor, pares, onPress, colors }: Celu
         <Text
           style={[
             styles.celulaValor,
-            { color: isHoje ? "rgba(255,255,255,0.85)" : colors.primary },
+            { color: isHoje ? "rgba(255,255,255,0.9)" : colors.primary },
           ]}
           numberOfLines={1}
         >
-          {formatMoeda(valor)}
+          {formatMoedaCompacto(valor)}
         </Text>
       )}
       {temDado && pares > 0 && (
@@ -99,6 +94,13 @@ function CelulaDia({ dia, isHoje, temDado, valor, pares, onPress, colors }: Celu
           {pares}p
         </Text>
       )}
+      {temDado && qtd > 1 && (
+        <View style={[styles.qtdBadge, { backgroundColor: isHoje ? "rgba(255,255,255,0.25)" : colors.primary + "22" }]}>
+          <Text style={[styles.qtdBadgeText, { color: isHoje ? "#fff" : colors.primary }]}>
+            {qtd}
+          </Text>
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -106,7 +108,7 @@ function CelulaDia({ dia, isHoje, temDado, valor, pares, onPress, colors }: Celu
 export default function CalendarioScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { getDia, getTotalMes } = useVendas();
+  const { getDiaTotais, getTotalMes } = useVendas();
 
   const now = new Date();
   const [ano, setAno] = useState(now.getFullYear());
@@ -142,11 +144,10 @@ export default function CalendarioScreen() {
     [ano, mes]
   );
 
-  // Build grid cells (blanks + days)
+  // Build grid cells
   const cells: Array<{ dia: number | null }> = [];
   for (let i = 0; i < primeiroSemana; i++) cells.push({ dia: null });
   for (let d = 1; d <= totalDias; d++) cells.push({ dia: d });
-  // Pad to complete last row
   while (cells.length % 7 !== 0) cells.push({ dia: null });
 
   return (
@@ -154,11 +155,7 @@ export default function CalendarioScreen() {
       <View
         style={[
           styles.header,
-          {
-            paddingTop: topPad + 12,
-            backgroundColor: colors.background,
-            borderBottomColor: colors.border,
-          },
+          { paddingTop: topPad + 12, backgroundColor: colors.background, borderBottomColor: colors.border },
         ]}
       >
         <Pressable
@@ -168,12 +165,8 @@ export default function CalendarioScreen() {
           <Feather name="chevron-left" size={22} color={colors.foreground} />
         </Pressable>
         <View style={styles.headerCenter}>
-          <Text style={[styles.headerMes, { color: colors.foreground }]}>
-            {nomeMes(mes)}
-          </Text>
-          <Text style={[styles.headerAno, { color: colors.mutedForeground }]}>
-            {ano}
-          </Text>
+          <Text style={[styles.headerMes, { color: colors.foreground }]}>{nomeMes(mes)}</Text>
+          <Text style={[styles.headerAno, { color: colors.mutedForeground }]}>{ano}</Text>
         </View>
         <Pressable
           onPress={handleNext}
@@ -184,10 +177,7 @@ export default function CalendarioScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[
-          styles.scroll,
-          { paddingBottom: bottomPad + 16 },
-        ]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 16 }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Resumo rápido */}
@@ -202,27 +192,17 @@ export default function CalendarioScreen() {
               <Text style={[styles.resumoVal, { color: colors.primary }]}>
                 {total.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
               </Text>
-              <Text style={[styles.resumoLabel, { color: colors.mutedForeground }]}>
-                Venda Mensal
-              </Text>
+              <Text style={[styles.resumoLabel, { color: colors.mutedForeground }]}>Venda Mensal</Text>
             </View>
             <View style={[styles.resumoDivider, { backgroundColor: colors.border }]} />
             <View style={styles.resumoItem}>
-              <Text style={[styles.resumoVal, { color: colors.primary }]}>
-                {total.pares}
-              </Text>
-              <Text style={[styles.resumoLabel, { color: colors.mutedForeground }]}>
-                Pares
-              </Text>
+              <Text style={[styles.resumoVal, { color: colors.primary }]}>{total.pares}</Text>
+              <Text style={[styles.resumoLabel, { color: colors.mutedForeground }]}>Pares</Text>
             </View>
             <View style={[styles.resumoDivider, { backgroundColor: colors.border }]} />
             <View style={styles.resumoItem}>
-              <Text style={[styles.resumoVal, { color: colors.primary }]}>
-                {total.dias}
-              </Text>
-              <Text style={[styles.resumoLabel, { color: colors.mutedForeground }]}>
-                Dias
-              </Text>
+              <Text style={[styles.resumoVal, { color: colors.primary }]}>{total.dias}</Text>
+              <Text style={[styles.resumoLabel, { color: colors.mutedForeground }]}>Dias</Text>
             </View>
           </View>
         )}
@@ -231,20 +211,13 @@ export default function CalendarioScreen() {
         <View style={[styles.semanaRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {DIAS_SEMANA.map((d, i) => (
             <View key={i} style={styles.semanaCell}>
-              <Text style={[styles.semanaLabel, { color: colors.mutedForeground }]}>
-                {d}
-              </Text>
+              <Text style={[styles.semanaLabel, { color: colors.mutedForeground }]}>{d}</Text>
             </View>
           ))}
         </View>
 
         {/* Grade do calendário */}
-        <View
-          style={[
-            styles.grade,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
+        <View style={[styles.grade, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {Array.from({ length: Math.ceil(cells.length / 7) }).map((_, row) => (
             <View key={row} style={styles.gradeRow}>
               {cells.slice(row * 7, row * 7 + 7).map((cell, col) => {
@@ -252,18 +225,17 @@ export default function CalendarioScreen() {
                   return <View key={col} style={styles.celulaVazia} />;
                 }
                 const data = `${ano}-${String(mes).padStart(2, "0")}-${String(cell.dia).padStart(2, "0")}`;
-                const diaData = getDia(data);
+                const totais = getDiaTotais(data);
                 const isHoje = data === hoje;
                 return (
                   <CelulaDia
                     key={col}
                     dia={cell.dia}
-                    data={data}
                     isHoje={isHoje}
-                    isHojeMes={ano === now.getFullYear() && mes === now.getMonth() + 1}
-                    temDado={!!diaData}
-                    valor={diaData?.valor ?? 0}
-                    pares={diaData?.pares ?? 0}
+                    temDado={!!totais}
+                    valor={totais?.valor ?? 0}
+                    pares={totais?.pares ?? 0}
+                    qtd={totais?.qtd ?? 0}
                     onPress={() => handleDia(cell.dia!)}
                     colors={colors}
                   />
@@ -275,13 +247,13 @@ export default function CalendarioScreen() {
 
         <View style={styles.legendaRow}>
           <View style={[styles.legendaDot, { backgroundColor: colors.primary }]} />
-          <Text style={[styles.legendaText, { color: colors.mutedForeground }]}>
-            Hoje
-          </Text>
+          <Text style={[styles.legendaText, { color: colors.mutedForeground }]}>Hoje</Text>
           <View style={[styles.legendaDot, { backgroundColor: colors.accent, borderWidth: 1, borderColor: colors.secondary }]} />
-          <Text style={[styles.legendaText, { color: colors.mutedForeground }]}>
-            Com lançamento
-          </Text>
+          <Text style={[styles.legendaText, { color: colors.mutedForeground }]}>Com lançamento</Text>
+          <View style={[styles.legendaBadge, { backgroundColor: colors.primary + "22" }]}>
+            <Text style={[styles.legendaBadgeText, { color: colors.primary }]}>N</Text>
+          </View>
+          <Text style={[styles.legendaText, { color: colors.mutedForeground }]}>Qtd de vendas</Text>
         </View>
       </ScrollView>
     </View>
@@ -330,35 +302,42 @@ const styles = StyleSheet.create({
     padding: 4,
     gap: 4,
   },
-  gradeRow: {
-    flexDirection: "row",
-    gap: 4,
-  },
+  gradeRow: { flexDirection: "row", gap: 4 },
   celula: {
     flex: 1,
-    aspectRatio: 0.9,
+    aspectRatio: 0.85,
     borderRadius: 8,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     padding: 3,
-    minHeight: 52,
+    minHeight: 54,
   },
   celulaDia: { fontSize: 13 },
   celulaValor: { fontSize: 9, fontFamily: "Inter_600SemiBold", marginTop: 1 },
   celulaPares: { fontSize: 9, fontFamily: "Inter_400Regular" },
-  celulaVazia: {
-    flex: 1,
-    aspectRatio: 0.9,
-    minHeight: 52,
+  qtdBadge: {
+    position: "absolute",
+    top: 3,
+    right: 3,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  qtdBadgeText: { fontSize: 8, fontFamily: "Inter_700Bold" },
+  celulaVazia: { flex: 1, aspectRatio: 0.85, minHeight: 54 },
   legendaRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     justifyContent: "center",
     paddingVertical: 4,
+    flexWrap: "wrap",
   },
   legendaDot: { width: 10, height: 10, borderRadius: 5 },
-  legendaText: { fontSize: 12, fontFamily: "Inter_400Regular", marginRight: 8 },
+  legendaText: { fontSize: 11, fontFamily: "Inter_400Regular", marginRight: 6 },
+  legendaBadge: { width: 14, height: 14, borderRadius: 7, alignItems: "center", justifyContent: "center" },
+  legendaBadgeText: { fontSize: 8, fontFamily: "Inter_700Bold" },
 });

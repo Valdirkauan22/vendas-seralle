@@ -7,9 +7,16 @@ import React, {
   useState,
 } from "react";
 
-export interface DiaVenda {
+export interface VendaItem {
+  id: string;
   valor: number;
   pares: number;
+  descricao: string;
+  hora: string;
+}
+
+export interface DiaVenda {
+  itens: VendaItem[];
   margem: number;
 }
 
@@ -28,23 +35,42 @@ export const CONFIG_MES_PADRAO: ConfigMes = {
 type DiasMap = Record<string, DiaVenda>;
 type ConfigMap = Record<string, ConfigMes>;
 
+interface DiaTotais {
+  valor: number;
+  pares: number;
+  margem: number;
+  qtd: number;
+}
+
 interface VendasContextType {
   dias: DiasMap;
   configs: ConfigMap;
   loading: boolean;
-  salvarDia: (data: string, dia: DiaVenda) => Promise<void>;
+  adicionarItem: (
+    data: string,
+    item: Omit<VendaItem, "id" | "hora">
+  ) => Promise<void>;
+  removerItem: (data: string, itemId: string) => Promise<void>;
+  salvarMargemDia: (data: string, margem: number) => Promise<void>;
   removerDia: (data: string) => Promise<void>;
   getDia: (data: string) => DiaVenda | null;
+  getDiaTotais: (data: string) => DiaTotais | null;
   getConfigMes: (mesId: string) => ConfigMes;
   salvarConfigMes: (mesId: string, config: ConfigMes) => Promise<void>;
   getDiasMes: (mesId: string) => Array<{ data: string; dia: DiaVenda }>;
-  getTotalMes: (mesId: string) => { valor: number; pares: number; margem: number; dias: number };
+  getTotalMes: (
+    mesId: string
+  ) => { valor: number; pares: number; margem: number; dias: number };
 }
 
-const STORAGE_DIAS = "@diario_vendas:dias_v2";
+const STORAGE_DIAS = "@diario_vendas:dias_v3";
 const STORAGE_CONFIGS = "@diario_vendas:configs_v2";
 
 const VendasContext = createContext<VendasContextType | null>(null);
+
+function gerarId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
 
 export function VendasProvider({ children }: { children: React.ReactNode }) {
   const [dias, setDias] = useState<DiasMap>({});
@@ -68,27 +94,70 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  const salvarDia = useCallback(
-    async (data: string, dia: DiaVenda) => {
-      const novo = { ...dias, [data]: dia };
-      await AsyncStorage.setItem(STORAGE_DIAS, JSON.stringify(novo));
-      setDias(novo);
+  const persistirDias = useCallback(async (novo: DiasMap) => {
+    await AsyncStorage.setItem(STORAGE_DIAS, JSON.stringify(novo));
+    setDias(novo);
+  }, []);
+
+  const adicionarItem = useCallback(
+    async (data: string, item: Omit<VendaItem, "id" | "hora">) => {
+      const diaAtual = dias[data] ?? { itens: [], margem: 0 };
+      const novoItem: VendaItem = {
+        ...item,
+        id: gerarId(),
+        hora: new Date().toISOString(),
+      };
+      const novo: DiasMap = {
+        ...dias,
+        [data]: { ...diaAtual, itens: [...diaAtual.itens, novoItem] },
+      };
+      await persistirDias(novo);
     },
-    [dias]
+    [dias, persistirDias]
+  );
+
+  const removerItem = useCallback(
+    async (data: string, itemId: string) => {
+      const diaAtual = dias[data];
+      if (!diaAtual) return;
+      const novosItens = diaAtual.itens.filter((i) => i.id !== itemId);
+      const novo: DiasMap = { ...dias, [data]: { ...diaAtual, itens: novosItens } };
+      await persistirDias(novo);
+    },
+    [dias, persistirDias]
+  );
+
+  const salvarMargemDia = useCallback(
+    async (data: string, margem: number) => {
+      const diaAtual = dias[data] ?? { itens: [], margem: 0 };
+      const novo: DiasMap = { ...dias, [data]: { ...diaAtual, margem } };
+      await persistirDias(novo);
+    },
+    [dias, persistirDias]
   );
 
   const removerDia = useCallback(
     async (data: string) => {
       const novo = { ...dias };
       delete novo[data];
-      await AsyncStorage.setItem(STORAGE_DIAS, JSON.stringify(novo));
-      setDias(novo);
+      await persistirDias(novo);
     },
-    [dias]
+    [dias, persistirDias]
   );
 
   const getDia = useCallback(
     (data: string): DiaVenda | null => dias[data] ?? null,
+    [dias]
+  );
+
+  const getDiaTotais = useCallback(
+    (data: string): DiaTotais | null => {
+      const dia = dias[data];
+      if (!dia || dia.itens.length === 0) return null;
+      const valor = dia.itens.reduce((s, i) => s + i.valor, 0);
+      const pares = dia.itens.reduce((s, i) => s + i.pares, 0);
+      return { valor, pares, margem: dia.margem, qtd: dia.itens.length };
+    },
     [dias]
   );
 
@@ -107,25 +176,36 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   );
 
   const getDiasMes = useCallback(
-    (mesId: string): Array<{ data: string; dia: DiaVenda }> => {
-      return Object.entries(dias)
+    (mesId: string): Array<{ data: string; dia: DiaVenda }> =>
+      Object.entries(dias)
         .filter(([data]) => data.startsWith(mesId))
         .map(([data, dia]) => ({ data, dia }))
-        .sort((a, b) => a.data.localeCompare(b.data));
-    },
+        .sort((a, b) => a.data.localeCompare(b.data)),
     [dias]
   );
 
   const getTotalMes = useCallback(
     (mesId: string) => {
       const entr = getDiasMes(mesId);
-      let valor = 0, pares = 0, margem = 0, qtd = 0;
+      let valor = 0,
+        pares = 0,
+        margem = 0,
+        qtdMargem = 0,
+        diasComVenda = 0;
       for (const { dia } of entr) {
-        valor += dia.valor;
-        pares += dia.pares;
-        if (dia.margem > 0) { margem += dia.margem; qtd++; }
+        const v = dia.itens.reduce((s, i) => s + i.valor, 0);
+        const p = dia.itens.reduce((s, i) => s + i.pares, 0);
+        if (v > 0 || p > 0) diasComVenda++;
+        valor += v;
+        pares += p;
+        if (dia.margem > 0) { margem += dia.margem; qtdMargem++; }
       }
-      return { valor, pares, margem: qtd > 0 ? margem / qtd : 0, dias: entr.length };
+      return {
+        valor,
+        pares,
+        margem: qtdMargem > 0 ? margem / qtdMargem : 0,
+        dias: diasComVenda,
+      };
     },
     [getDiasMes]
   );
@@ -136,9 +216,12 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         dias,
         configs,
         loading,
-        salvarDia,
+        adicionarItem,
+        removerItem,
+        salvarMargemDia,
         removerDia,
         getDia,
+        getDiaTotais,
         getConfigMes,
         salvarConfigMes,
         getDiasMes,
@@ -174,15 +257,6 @@ const MESES_PT = [
   "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
   "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro",
 ];
-
-export function nomeMes(mes: number): string {
-  return MESES_PT[mes - 1] ?? "";
-}
-
-export function diasNoMes(ano: number, mes: number): number {
-  return new Date(ano, mes, 0).getDate();
-}
-
-export function primeiroDiaSemana(ano: number, mes: number): number {
-  return new Date(ano, mes - 1, 1).getDay();
-}
+export function nomeMes(mes: number): string { return MESES_PT[mes - 1] ?? ""; }
+export function diasNoMes(ano: number, mes: number): number { return new Date(ano, mes, 0).getDate(); }
+export function primeiroDiaSemana(ano: number, mes: number): number { return new Date(ano, mes - 1, 1).getDay(); }
