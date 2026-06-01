@@ -319,6 +319,20 @@ export default function ResumoScreen() {
           </Text>
         </Pressable>
 
+        {/* Histórico de metas */}
+        <Pressable
+          onPress={() => router.push("/historico-metas")}
+          style={({ pressed }) => [
+            styles.configBtn,
+            { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <Feather name="award" size={15} color={colors.mutedForeground} />
+          <Text style={[styles.configBtnText, { color: colors.mutedForeground }]}>
+            Histórico de metas
+          </Text>
+        </Pressable>
+
         {/* Configurar metas */}
         <Pressable
           onPress={() => router.push(`/metas/${mesId}`)}

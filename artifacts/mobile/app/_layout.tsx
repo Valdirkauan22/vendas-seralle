@@ -38,6 +38,10 @@ function RootLayoutNav() {
         name="notificacoes"
         options={{ presentation: "modal", headerShown: false }}
       />
+      <Stack.Screen
+        name="historico-metas"
+        options={{ presentation: "modal", headerShown: false }}
+      />
     </Stack>
   );
 }
