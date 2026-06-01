@@ -3,6 +3,8 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Image,
   Platform,
   Pressable,
@@ -21,6 +23,7 @@ import {
   useVendas,
 } from "@/context/VendasContext";
 import { useColors } from "@/hooks/useColors";
+import { gerarECompartilharRelatorio } from "@/utils/relatorio";
 
 function formatMoeda(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -98,11 +101,12 @@ function ProgressBar({
 export default function ResumoScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { getTotalMes, getConfigMes, getDiaTotais } = useVendas();
+  const { getTotalMes, getConfigMes, getDiaTotais, getDiasMes } = useVendas();
 
   const now = new Date();
   const [ano, setAno] = useState(now.getFullYear());
   const [mes, setMes] = useState(now.getMonth() + 1);
+  const [exporting, setExporting] = useState(false);
 
   const mesId = getMesId(ano, mes);
   const total = getTotalMes(mesId);
@@ -131,6 +135,28 @@ export default function ResumoScreen() {
   }, [hoje]);
 
   const isHojeMesAtual = ano === now.getFullYear() && mes === now.getMonth() + 1;
+
+  const handleExportar = useCallback(async () => {
+    if (total.dias === 0) {
+      Alert.alert("Sem dados", "Não há vendas lançadas neste mês para exportar.");
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setExporting(true);
+    try {
+      await gerarECompartilharRelatorio({
+        mesNome: nomeMes(mes),
+        ano,
+        total,
+        config,
+        diasMes: getDiasMes(mesId),
+      });
+    } catch (e) {
+      Alert.alert("Erro", "Não foi possível gerar o relatório.");
+    } finally {
+      setExporting(false);
+    }
+  }, [total, config, mes, ano, mesId, getDiasMes]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -274,6 +300,25 @@ export default function ResumoScreen() {
           />
         </View>
 
+        {/* Exportar relatório */}
+        <Pressable
+          onPress={handleExportar}
+          disabled={exporting}
+          style={({ pressed }) => [
+            styles.exportBtn,
+            { backgroundColor: colors.primary, opacity: pressed || exporting ? 0.75 : 1 },
+          ]}
+        >
+          {exporting ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Feather name="share" size={15} color="#fff" />
+          )}
+          <Text style={styles.exportBtnText}>
+            {exporting ? "Gerando relatório..." : "Exportar relatório do mês"}
+          </Text>
+        </Pressable>
+
         {/* Configurar metas */}
         <Pressable
           onPress={() => router.push(`/metas/${mesId}`)}
@@ -361,6 +406,19 @@ const styles = StyleSheet.create({
   cotaMargem: { fontSize: 11, fontFamily: "Inter_500Medium" },
   cotaFalta: { fontSize: 11, fontFamily: "Inter_400Regular" },
   metaDivider: { height: StyleSheet.hairlineWidth },
+  exportBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 14,
+    paddingVertical: 14,
+  },
+  exportBtnText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "#fff",
+  },
   configBtn: {
     flexDirection: "row",
     alignItems: "center",
