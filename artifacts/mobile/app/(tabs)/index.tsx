@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useProfile } from "@/context/ProfileContext";
 import {
   getMesId,
   getMesAtualId,
@@ -102,6 +103,7 @@ export default function ResumoScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { getTotalMes, getConfigMes, getDiaTotais, getDiasMes } = useVendas();
+  const { perfilAtivo, perfis } = useProfile();
 
   const now = new Date();
   const [ano, setAno] = useState(now.getFullYear());
@@ -172,12 +174,31 @@ export default function ResumoScreen() {
             style={styles.logo}
             resizeMode="contain"
           />
-          <Pressable
-            onPress={() => router.push("/notificacoes")}
-            style={({ pressed }) => [styles.bellBtn, { opacity: pressed ? 0.6 : 1 }]}
-          >
-            <Feather name="bell" size={20} color={colors.primary} />
-          </Pressable>
+          <View style={styles.headerRight}>
+            {perfis.length > 0 && (
+              <Pressable
+                onPress={() => router.push("/perfis")}
+                style={({ pressed }) => [
+                  styles.perfilChip,
+                  { backgroundColor: colors.muted, borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Feather name="user" size={12} color={colors.primary} />
+                <Text style={[styles.perfilChipText, { color: colors.foreground }]} numberOfLines={1}>
+                  {perfilAtivo?.nome ?? "—"}
+                </Text>
+                {perfis.length > 1 && (
+                  <Feather name="chevron-down" size={12} color={colors.mutedForeground} />
+                )}
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() => router.push("/notificacoes")}
+              style={({ pressed }) => [styles.bellBtn, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Feather name="bell" size={20} color={colors.primary} />
+            </Pressable>
+          </View>
         </View>
         <View style={styles.mesNav}>
           <Pressable
@@ -361,8 +382,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 8,
   },
-  logoRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 },
+  logoRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", paddingHorizontal: 8 },
   logo: { height: 36, width: 120 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 4 },
+  perfilChip: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    borderRadius: 20, borderWidth: 1,
+    paddingHorizontal: 10, paddingVertical: 5,
+    maxWidth: 140,
+  },
+  perfilChipText: { fontSize: 12, fontFamily: "Inter_600SemiBold", flexShrink: 1 },
   bellBtn: { padding: 6 },
   mesNav: {
     flexDirection: "row",

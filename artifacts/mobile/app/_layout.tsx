@@ -15,6 +15,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { SplashView } from "@/components/SplashView";
+import { ProfileProvider } from "@/context/ProfileContext";
 import { VendasProvider } from "@/context/VendasContext";
 import { agendarNotificacao, getNotifConfig } from "@/utils/notifications";
 
@@ -40,6 +41,10 @@ function RootLayoutNav() {
       />
       <Stack.Screen
         name="historico-metas"
+        options={{ presentation: "modal", headerShown: false }}
+      />
+      <Stack.Screen
+        name="perfis"
         options={{ presentation: "modal", headerShown: false }}
       />
     </Stack>
@@ -70,6 +75,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
+          <ProfileProvider>
           <VendasProvider>
             <GestureHandlerRootView>
               <KeyboardProvider>
@@ -80,6 +86,7 @@ export default function RootLayout() {
               </KeyboardProvider>
             </GestureHandlerRootView>
           </VendasProvider>
+          </ProfileProvider>
         </QueryClientProvider>
       </ErrorBoundary>
     </SafeAreaProvider>

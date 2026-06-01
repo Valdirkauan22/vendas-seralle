@@ -7,6 +7,8 @@ import React, {
   useState,
 } from "react";
 
+import { useProfile } from "./ProfileContext";
+
 export interface VendaItem {
   id: string;
   valor: number;
@@ -48,10 +50,7 @@ interface VendasContextType {
   dias: DiasMap;
   configs: ConfigMap;
   loading: boolean;
-  adicionarItem: (
-    data: string,
-    item: Omit<VendaItem, "id" | "hora">
-  ) => Promise<void>;
+  adicionarItem: (data: string, item: Omit<VendaItem, "id" | "hora">) => Promise<void>;
   removerItem: (data: string, itemId: string) => Promise<void>;
   salvarMargemDia: (data: string, margem: number) => Promise<void>;
   removerDia: (data: string) => Promise<void>;
@@ -60,13 +59,8 @@ interface VendasContextType {
   getConfigMes: (mesId: string) => ConfigMes;
   salvarConfigMes: (mesId: string, config: ConfigMes) => Promise<void>;
   getDiasMes: (mesId: string) => Array<{ data: string; dia: DiaVenda }>;
-  getTotalMes: (
-    mesId: string
-  ) => { valor: number; pares: number; margem: number; dias: number };
+  getTotalMes: (mesId: string) => { valor: number; pares: number; margem: number; dias: number };
 }
-
-const STORAGE_DIAS = "@diario_vendas:dias_v3";
-const STORAGE_CONFIGS = "@diario_vendas:configs_v2";
 
 const VendasContext = createContext<VendasContextType | null>(null);
 
@@ -74,46 +68,63 @@ function gerarId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+function storageKeyDias(profileId: string) {
+  return `@diario_vendas:dias_v3:${profileId}`;
+}
+function storageKeyConfigs(profileId: string) {
+  return `@diario_vendas:configs_v2:${profileId}`;
+}
+
 export function VendasProvider({ children }: { children: React.ReactNode }) {
+  const { perfilAtivo } = useProfile();
+  const profileId = perfilAtivo?.id ?? "default";
+
   const [dias, setDias] = useState<DiasMap>({});
   const [configs, setConfigs] = useState<ConfigMap>({});
   const [loading, setLoading] = useState(true);
 
+  // Recarrega dados sempre que o perfil ativo mudar
   useEffect(() => {
+    setLoading(true);
+    setDias({});
+    setConfigs({});
     (async () => {
       try {
+        // Migração: se for o perfil "default", tenta carregar dados das chaves antigas
         const [rawDias, rawConfigs] = await Promise.all([
-          AsyncStorage.getItem(STORAGE_DIAS),
-          AsyncStorage.getItem(STORAGE_CONFIGS),
+          AsyncStorage.multiGet([
+            storageKeyDias(profileId),
+            ...(profileId === "default" ? ["@diario_vendas:dias_v3"] : []),
+          ]),
+          AsyncStorage.multiGet([
+            storageKeyConfigs(profileId),
+            ...(profileId === "default" ? ["@diario_vendas:configs_v2"] : []),
+          ]),
         ]);
-        if (rawDias) setDias(JSON.parse(rawDias));
-        if (rawConfigs) setConfigs(JSON.parse(rawConfigs));
+
+        const diasVal = rawDias[0][1] ?? (profileId === "default" ? rawDias[1]?.[1] : null);
+        const configsVal = rawConfigs[0][1] ?? (profileId === "default" ? rawConfigs[1]?.[1] : null);
+
+        if (diasVal) setDias(JSON.parse(diasVal));
+        if (configsVal) setConfigs(JSON.parse(configsVal));
       } catch {
         // ignore
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [profileId]);
 
   const persistirDias = useCallback(async (novo: DiasMap) => {
-    await AsyncStorage.setItem(STORAGE_DIAS, JSON.stringify(novo));
+    await AsyncStorage.setItem(storageKeyDias(profileId), JSON.stringify(novo));
     setDias(novo);
-  }, []);
+  }, [profileId]);
 
   const adicionarItem = useCallback(
     async (data: string, item: Omit<VendaItem, "id" | "hora">) => {
       const diaAtual = dias[data] ?? { itens: [], margem: 0 };
-      const novoItem: VendaItem = {
-        ...item,
-        id: gerarId(),
-        hora: new Date().toISOString(),
-      };
-      const novo: DiasMap = {
-        ...dias,
-        [data]: { ...diaAtual, itens: [...diaAtual.itens, novoItem] },
-      };
-      await persistirDias(novo);
+      const novoItem: VendaItem = { ...item, id: gerarId(), hora: new Date().toISOString() };
+      await persistirDias({ ...dias, [data]: { ...diaAtual, itens: [...diaAtual.itens, novoItem] } });
     },
     [dias, persistirDias]
   );
@@ -122,9 +133,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     async (data: string, itemId: string) => {
       const diaAtual = dias[data];
       if (!diaAtual) return;
-      const novosItens = diaAtual.itens.filter((i) => i.id !== itemId);
-      const novo: DiasMap = { ...dias, [data]: { ...diaAtual, itens: novosItens } };
-      await persistirDias(novo);
+      await persistirDias({ ...dias, [data]: { ...diaAtual, itens: diaAtual.itens.filter((i) => i.id !== itemId) } });
     },
     [dias, persistirDias]
   );
@@ -132,8 +141,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   const salvarMargemDia = useCallback(
     async (data: string, margem: number) => {
       const diaAtual = dias[data] ?? { itens: [], margem: 0 };
-      const novo: DiasMap = { ...dias, [data]: { ...diaAtual, margem } };
-      await persistirDias(novo);
+      await persistirDias({ ...dias, [data]: { ...diaAtual, margem } });
     },
     [dias, persistirDias]
   );
@@ -147,10 +155,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     [dias, persistirDias]
   );
 
-  const getDia = useCallback(
-    (data: string): DiaVenda | null => dias[data] ?? null,
-    [dias]
-  );
+  const getDia = useCallback((data: string): DiaVenda | null => dias[data] ?? null, [dias]);
 
   const getDiaTotais = useCallback(
     (data: string): DiaTotais | null => {
@@ -171,10 +176,10 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   const salvarConfigMes = useCallback(
     async (mesId: string, config: ConfigMes) => {
       const novo = { ...configs, [mesId]: config };
-      await AsyncStorage.setItem(STORAGE_CONFIGS, JSON.stringify(novo));
+      await AsyncStorage.setItem(storageKeyConfigs(profileId), JSON.stringify(novo));
       setConfigs(novo);
     },
-    [configs]
+    [configs, profileId]
   );
 
   const getDiasMes = useCallback(
@@ -189,11 +194,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   const getTotalMes = useCallback(
     (mesId: string) => {
       const entr = getDiasMes(mesId);
-      let valor = 0,
-        pares = 0,
-        margem = 0,
-        qtdMargem = 0,
-        diasComVenda = 0;
+      let valor = 0, pares = 0, margem = 0, qtdMargem = 0, diasComVenda = 0;
       for (const { dia } of entr) {
         const v = dia.itens.reduce((s, i) => s + i.valor, 0);
         const p = dia.itens.reduce((s, i) => s + i.pares, 0);
@@ -202,34 +203,13 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         pares += p;
         if (dia.margem > 0) { margem += dia.margem; qtdMargem++; }
       }
-      return {
-        valor,
-        pares,
-        margem: qtdMargem > 0 ? margem / qtdMargem : 0,
-        dias: diasComVenda,
-      };
+      return { valor, pares, margem: qtdMargem > 0 ? margem / qtdMargem : 0, dias: diasComVenda };
     },
     [getDiasMes]
   );
 
   return (
-    <VendasContext.Provider
-      value={{
-        dias,
-        configs,
-        loading,
-        adicionarItem,
-        removerItem,
-        salvarMargemDia,
-        removerDia,
-        getDia,
-        getDiaTotais,
-        getConfigMes,
-        salvarConfigMes,
-        getDiasMes,
-        getTotalMes,
-      }}
-    >
+    <VendasContext.Provider value={{ dias, configs, loading, adicionarItem, removerItem, salvarMargemDia, removerDia, getDia, getDiaTotais, getConfigMes, salvarConfigMes, getDiasMes, getTotalMes }}>
       {children}
     </VendasContext.Provider>
   );
@@ -255,10 +235,7 @@ export function getMesAtualId(): string {
   return getMesId(now.getFullYear(), now.getMonth() + 1);
 }
 
-const MESES_PT = [
-  "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
-  "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro",
-];
+const MESES_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 export function nomeMes(mes: number): string { return MESES_PT[mes - 1] ?? ""; }
 export function diasNoMes(ano: number, mes: number): number { return new Date(ano, mes, 0).getDate(); }
 export function primeiroDiaSemana(ano: number, mes: number): number { return new Date(ano, mes - 1, 1).getDay(); }
