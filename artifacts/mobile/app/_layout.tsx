@@ -17,7 +17,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { SplashView } from "@/components/SplashView";
 import { ProfileProvider } from "@/context/ProfileContext";
 import { VendasProvider } from "@/context/VendasContext";
-import { agendarNotificacao, getNotifConfig } from "@/utils/notifications";
+import { agendarNotificacao, getNotifConfig, initNotificationHandler } from "@/utils/notifications";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -65,9 +65,10 @@ export default function RootLayout() {
   useEffect(() => {
     if (fontsReady) {
       SplashScreen.hideAsync();
-      getNotifConfig().then((cfg) => {
-        if (cfg.enabled) agendarNotificacao(cfg);
-      });
+      initNotificationHandler()
+        .then(() => getNotifConfig())
+        .then((cfg) => { if (cfg.enabled) agendarNotificacao(cfg); })
+        .catch(() => { /* notificações não disponíveis nesta plataforma */ });
     }
   }, [fontsReady]);
 
