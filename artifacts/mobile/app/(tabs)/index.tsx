@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -136,25 +137,32 @@ export default function ResumoScreen() {
       <View
         style={[
           styles.header,
-          { paddingTop: topPad + 12, backgroundColor: colors.background, borderBottomColor: colors.border },
+          { paddingTop: topPad + 8, backgroundColor: colors.background, borderBottomColor: colors.border },
         ]}
       >
-        <Pressable
-          onPress={handlePrevMes}
-          style={({ pressed }) => [styles.navArrow, { opacity: pressed ? 0.5 : 1 }]}
-        >
-          <Feather name="chevron-left" size={22} color={colors.foreground} />
-        </Pressable>
-        <View style={styles.headerCenter}>
-          <Text style={[styles.headerMes, { color: colors.foreground }]}>{nomeMes(mes)}</Text>
-          <Text style={[styles.headerAno, { color: colors.mutedForeground }]}>{ano}</Text>
+        <Image
+          source={require("../../assets/images/logo.webp")}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+        <View style={styles.mesNav}>
+          <Pressable
+            onPress={handlePrevMes}
+            style={({ pressed }) => [styles.navArrow, { opacity: pressed ? 0.5 : 1 }]}
+          >
+            <Feather name="chevron-left" size={22} color={colors.foreground} />
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <Text style={[styles.headerMes, { color: colors.foreground }]}>{nomeMes(mes)}</Text>
+            <Text style={[styles.headerAno, { color: colors.mutedForeground }]}>{ano}</Text>
+          </View>
+          <Pressable
+            onPress={handleNextMes}
+            style={({ pressed }) => [styles.navArrow, { opacity: pressed ? 0.5 : 1 }]}
+          >
+            <Feather name="chevron-right" size={22} color={colors.foreground} />
+          </Pressable>
         </View>
-        <Pressable
-          onPress={handleNextMes}
-          style={({ pressed }) => [styles.navArrow, { opacity: pressed ? 0.5 : 1 }]}
-        >
-          <Feather name="chevron-right" size={22} color={colors.foreground} />
-        </Pressable>
       </View>
 
       <ScrollView
@@ -279,12 +287,19 @@ export default function ResumoScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
+    flexDirection: "column",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 8,
+  },
+  logo: { height: 36, width: 120 },
+  mesNav: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 8,
-    paddingBottom: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    width: "100%",
   },
   navArrow: { padding: 10 },
   headerCenter: { alignItems: "center" },
