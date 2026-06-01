@@ -16,6 +16,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { SplashView } from "@/components/SplashView";
 import { VendasProvider } from "@/context/VendasContext";
+import { agendarNotificacao, getNotifConfig } from "@/utils/notifications";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -31,6 +32,10 @@ function RootLayoutNav() {
       />
       <Stack.Screen
         name="metas/[mesId]"
+        options={{ presentation: "modal", headerShown: false }}
+      />
+      <Stack.Screen
+        name="notificacoes"
         options={{ presentation: "modal", headerShown: false }}
       />
     </Stack>
@@ -51,6 +56,9 @@ export default function RootLayout() {
   useEffect(() => {
     if (fontsReady) {
       SplashScreen.hideAsync();
+      getNotifConfig().then((cfg) => {
+        if (cfg.enabled) agendarNotificacao(cfg);
+      });
     }
   }, [fontsReady]);
 

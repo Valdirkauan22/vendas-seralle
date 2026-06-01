@@ -140,11 +140,19 @@ export default function ResumoScreen() {
           { paddingTop: topPad + 8, backgroundColor: colors.background, borderBottomColor: colors.border },
         ]}
       >
-        <Image
-          source={require("../../assets/images/logo.webp")}
-          style={styles.logo}
-          resizeMode="contain"
-        />
+        <View style={styles.logoRow}>
+          <Image
+            source={require("../../assets/images/logo.webp")}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <Pressable
+            onPress={() => router.push("/notificacoes")}
+            style={({ pressed }) => [styles.bellBtn, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <Feather name="bell" size={20} color={colors.primary} />
+          </Pressable>
+        </View>
         <View style={styles.mesNav}>
           <Pressable
             onPress={handlePrevMes}
@@ -294,7 +302,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 8,
   },
+  logoRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 },
   logo: { height: 36, width: 120 },
+  bellBtn: { padding: 6 },
   mesNav: {
     flexDirection: "row",
     alignItems: "center",
