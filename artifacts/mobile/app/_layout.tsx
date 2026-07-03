@@ -6,9 +6,9 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import { router, Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -18,6 +18,7 @@ import { SplashView } from "@/components/SplashView";
 import { ProfileProvider } from "@/context/ProfileContext";
 import { VendasProvider } from "@/context/VendasContext";
 import { agendarNotificacao, getNotifConfig, initNotificationHandler } from "@/utils/notifications";
+import { deveExibirOnboarding } from "./onboarding";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -27,6 +28,7 @@ function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
       <Stack.Screen
         name="dia/[data]"
         options={{ presentation: "modal", headerShown: false }}
@@ -60,17 +62,26 @@ export default function RootLayout() {
   });
 
   const [splashDone, setSplashDone] = useState(false);
+  const onboardingChecked = useRef(false);
   const fontsReady = fontsLoaded || !!fontError;
 
   useEffect(() => {
-    if (fontsReady) {
-      SplashScreen.hideAsync();
-      initNotificationHandler()
-        .then(() => getNotifConfig())
-        .then((cfg) => { if (cfg.enabled) agendarNotificacao(cfg); })
-        .catch(() => { /* notificações não disponíveis nesta plataforma */ });
-    }
+    if (!fontsReady) return;
+    SplashScreen.hideAsync();
+    initNotificationHandler()
+      .then(() => getNotifConfig())
+      .then((cfg) => { if (cfg.enabled) agendarNotificacao(cfg); })
+      .catch(() => { /* notificações não disponíveis nesta plataforma */ });
   }, [fontsReady]);
+
+  // Redireciona para onboarding na primeira abertura, após splash
+  useEffect(() => {
+    if (!splashDone || onboardingChecked.current) return;
+    onboardingChecked.current = true;
+    deveExibirOnboarding().then((deve) => {
+      if (deve) router.replace("/onboarding");
+    });
+  }, [splashDone]);
 
   return (
     <SafeAreaProvider>
