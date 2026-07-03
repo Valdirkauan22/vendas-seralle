@@ -21,6 +21,7 @@ import {
   getMesAtualId,
   getHojeStr,
   nomeMes,
+  diasNoMes,
   useVendas,
 } from "@/context/VendasContext";
 import { useColors } from "@/hooks/useColors";
@@ -102,7 +103,7 @@ function ProgressBar({
 export default function ResumoScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { getTotalMes, getConfigMes, getDiaTotais, getDiasMes } = useVendas();
+  const { getTotalMes, getConfigMes, getDiaTotais, getDiasMes, getDia } = useVendas();
   const { perfilAtivo, perfis } = useProfile();
 
   const now = new Date();
@@ -252,42 +253,114 @@ export default function ResumoScreen() {
           )}
         </View>
 
-        {/* Hoje */}
-        {isHojeMesAtual && (
-          <Pressable
-            onPress={handleHoje}
-            style={({ pressed }) => [
-              styles.hojeCard,
-              {
-                backgroundColor: colors.card,
-                borderColor: totaisHoje ? colors.primary : colors.border,
-                borderWidth: totaisHoje ? 1.5 : 1,
-                opacity: pressed ? 0.8 : 1,
-              },
-            ]}
-          >
-            <View style={styles.hojeLeft}>
-              <Feather
-                name={totaisHoje ? "check-circle" : "circle"}
-                size={18}
-                color={totaisHoje ? colors.primary : colors.mutedForeground}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.hojeTitle, { color: colors.foreground }]}>Hoje</Text>
-                {totaisHoje ? (
-                  <Text style={[styles.hojeSubtitle, { color: colors.mutedForeground }]}>
-                    {formatMoeda(totaisHoje.valor)} · {totaisHoje.pares} pares · {totaisHoje.qtd} {totaisHoje.qtd === 1 ? "venda" : "vendas"}
+        {/* Widget Hoje */}
+        {isHojeMesAtual && (() => {
+          const diaData = getDia(hoje);
+          const ultimaVenda = diaData?.itens?.length
+            ? diaData.itens[diaData.itens.length - 1]
+            : null;
+          const totalDias = diasNoMes(ano, mes);
+          const metaDiaria = config.cotaA.valor / totalDias;
+          const pctMeta = totaisHoje
+            ? Math.min((totaisHoje.valor / metaDiaria) * 100, 100)
+            : 0;
+          const atingiuMeta = totaisHoje ? totaisHoje.valor >= metaDiaria : false;
+
+          const diaSemana = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"][now.getDay()];
+          const diaNum = now.getDate();
+          const mesNomeHoje = nomeMes(now.getMonth() + 1);
+
+          return (
+            <View style={[styles.hojeWidget, { backgroundColor: colors.card, borderColor: totaisHoje ? colors.primary + "55" : colors.border, borderWidth: totaisHoje ? 1.5 : 1 }]}>
+              {/* Header do widget */}
+              <View style={styles.hojeWidgetHeader}>
+                <View style={styles.hojeWidgetDateRow}>
+                  <View style={[styles.hojeDotIndicador, { backgroundColor: totaisHoje ? colors.primary : colors.mutedForeground }]} />
+                  <Text style={[styles.hojeWidgetDateText, { color: colors.mutedForeground }]}>
+                    {diaSemana}, {diaNum} de {mesNomeHoje}
                   </Text>
-                ) : (
-                  <Text style={[styles.hojeSubtitle, { color: colors.mutedForeground }]}>
-                    Toque para lançar as vendas do dia
-                  </Text>
-                )}
+                </View>
+                <Pressable
+                  onPress={handleHoje}
+                  style={({ pressed }) => [
+                    styles.hojeAddBtn,
+                    { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 },
+                  ]}
+                >
+                  <Feather name="plus" size={14} color="#fff" />
+                  <Text style={styles.hojeAddBtnText}>Lançar</Text>
+                </Pressable>
               </View>
+
+              {totaisHoje ? (
+                <>
+                  {/* Totais principais */}
+                  <View style={styles.hojeValoresRow}>
+                    <View style={styles.hojeValorMain}>
+                      <Text style={[styles.hojeValorPrincipal, { color: colors.foreground }]}>
+                        {formatMoeda(totaisHoje.valor)}
+                      </Text>
+                      <Text style={[styles.hojeValorSub, { color: colors.mutedForeground }]}>
+                        {totaisHoje.pares} pares · {totaisHoje.qtd} {totaisHoje.qtd === 1 ? "venda" : "vendas"}
+                        {totaisHoje.margem > 0 ? ` · ${totaisHoje.margem.toFixed(1)}% mg` : ""}
+                      </Text>
+                    </View>
+                    {atingiuMeta && (
+                      <View style={[styles.hojeMiniCheck, { backgroundColor: colors.primary + "18" }]}>
+                        <Feather name="check" size={14} color={colors.primary} />
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Barra de progresso vs meta diária */}
+                  <View style={styles.hojeProgressArea}>
+                    <View style={[styles.hojeProgressTrack, { backgroundColor: colors.muted }]}>
+                      <View
+                        style={[
+                          styles.hojeProgressFill,
+                          {
+                            width: `${pctMeta}%` as any,
+                            backgroundColor: atingiuMeta ? "#10B981" : colors.primary,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={[styles.hojeProgressLabel, { color: colors.mutedForeground }]}>
+                      {atingiuMeta
+                        ? `✓ Meta diária atingida (${formatMoeda(metaDiaria)})`
+                        : `${pctMeta.toFixed(0)}% da meta diária · falta ${formatMoeda(metaDiaria - totaisHoje.valor)}`}
+                    </Text>
+                  </View>
+
+                  {/* Último lançamento */}
+                  {ultimaVenda && (
+                    <View style={[styles.hojeUltima, { borderTopColor: colors.border }]}>
+                      <Feather name="clock" size={12} color={colors.mutedForeground} />
+                      <Text style={[styles.hojeUltimaText, { color: colors.mutedForeground }]} numberOfLines={1}>
+                        Último: {formatMoeda(ultimaVenda.valor)}
+                        {ultimaVenda.descricao ? ` · ${ultimaVenda.descricao}` : ""}
+                        {" · "}{new Date(ultimaVenda.hora).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                      </Text>
+                    </View>
+                  )}
+                </>
+              ) : (
+                /* Estado vazio */
+                <Pressable onPress={handleHoje} style={styles.hojeEmpty}>
+                  <View style={[styles.hojeEmptyIcon, { backgroundColor: colors.muted }]}>
+                    <Feather name="shopping-bag" size={22} color={colors.mutedForeground} />
+                  </View>
+                  <Text style={[styles.hojeEmptyTitle, { color: colors.foreground }]}>
+                    Nenhuma venda lançada hoje
+                  </Text>
+                  <Text style={[styles.hojeEmptySub, { color: colors.mutedForeground }]}>
+                    Meta diária: {formatMoeda(metaDiaria)} (Cota A)
+                  </Text>
+                </Pressable>
+              )}
             </View>
-            <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
-          </Pressable>
-        )}
+          );
+        })()}
 
         {/* Metas */}
         <View style={[styles.metasCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -420,17 +493,43 @@ const styles = StyleSheet.create({
   },
   margemText: { fontSize: 12, fontFamily: "Inter_500Medium" },
   diasText: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 6 },
-  hojeCard: {
-    flexDirection: "row",
-    alignItems: "center",
+  hojeWidget: { borderRadius: 16, overflow: "hidden" },
+  hojeWidgetHeader: {
+    flexDirection: "row", alignItems: "center",
     justifyContent: "space-between",
-    padding: 16,
-    borderRadius: 14,
-    gap: 12,
+    paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10,
   },
-  hojeLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
-  hojeTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  hojeSubtitle: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 2 },
+  hojeWidgetDateRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  hojeDotIndicador: { width: 7, height: 7, borderRadius: 4 },
+  hojeWidgetDateText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  hojeAddBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6,
+  },
+  hojeAddBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  hojeValoresRow: {
+    flexDirection: "row", alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16, paddingBottom: 8,
+  },
+  hojeValorMain: { gap: 2 },
+  hojeValorPrincipal: { fontSize: 28, fontFamily: "Inter_700Bold" },
+  hojeValorSub: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  hojeMiniCheck: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  hojeProgressArea: { paddingHorizontal: 16, paddingBottom: 12, gap: 5 },
+  hojeProgressTrack: { height: 5, borderRadius: 3, overflow: "hidden" },
+  hojeProgressFill: { height: 5, borderRadius: 3 },
+  hojeProgressLabel: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  hojeUltima: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16, paddingVertical: 10,
+  },
+  hojeUltimaText: { fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 },
+  hojeEmpty: { alignItems: "center", paddingVertical: 20, gap: 8 },
+  hojeEmptyIcon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  hojeEmptyTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  hojeEmptySub: { fontSize: 12, fontFamily: "Inter_400Regular" },
   metasCard: { borderRadius: 14, borderWidth: 1, padding: 18, gap: 14 },
   metasTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   cotaRow: { gap: 6 },
