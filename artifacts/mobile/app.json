@@ -23,7 +23,13 @@
       }
     },
     "web": {
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "name": "Diário de Vendas · Serallê Calçados",
+      "shortName": "Diário de Vendas",
+      "description": "Acompanhe suas vendas diárias, monitore o progresso nas cotas mensais e exporte relatórios completos.",
+      "lang": "pt-BR",
+      "themeColor": "#1A6BB5",
+      "backgroundColor": "#1A6BB5"
     },
     "plugins": [
       [
