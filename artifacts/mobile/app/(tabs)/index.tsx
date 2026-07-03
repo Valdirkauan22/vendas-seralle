@@ -23,6 +23,7 @@ import {
   nomeMes,
   diasNoMes,
   useVendas,
+  type SyncStatus,
 } from "@/context/VendasContext";
 import { useColors } from "@/hooks/useColors";
 import { gerarECompartilharRelatorio } from "@/utils/relatorio";
@@ -103,7 +104,7 @@ function ProgressBar({
 export default function ResumoScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { getTotalMes, getConfigMes, getDiaTotais, getDiasMes, getDia } = useVendas();
+  const { getTotalMes, getConfigMes, getDiaTotais, getDiasMes, getDia, syncStatus, sincronizarAgora } = useVendas();
   const { perfilAtivo, perfis } = useProfile();
 
   const now = new Date();
@@ -193,6 +194,16 @@ export default function ResumoScreen() {
                 )}
               </Pressable>
             )}
+            <Pressable
+              onPress={() => sincronizarAgora()}
+              style={({ pressed }) => [styles.bellBtn, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Feather
+                name={syncStatus === "syncing" ? "loader" : syncStatus === "error" ? "cloud-off" : "cloud"}
+                size={19}
+                color={syncStatus === "error" ? colors.destructive : syncStatus === "ok" ? "#10B981" : colors.mutedForeground}
+              />
+            </Pressable>
             <Pressable
               onPress={() => router.push("/notificacoes")}
               style={({ pressed }) => [styles.bellBtn, { opacity: pressed ? 0.6 : 1 }]}
