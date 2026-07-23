@@ -308,19 +308,18 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
 
   const schedulSync = useCallback(() => {
     if (!syncCode) return;
-    if (syncTimer.current) clearTimeout(syncTimer.current);
+    // Cancel any pending retry since we're pushing fresh data now
     if (retryTimer.current) clearTimeout(retryTimer.current);
 
-    syncTimer.current = setTimeout(async () => {
-      setSyncStatus("syncing");
-      const result = await pushToCloud(syncCode, buildPayload());
+    setSyncStatus("syncing");
+    pushToCloud(syncCode, buildPayload()).then((result) => {
       if (result.ok) {
         setSyncStatus("ok");
         setLastSync(new Date());
       } else {
         setSyncStatus("error");
         console.warn("[sync] Push falhou, agendando retry em 15s:", result.error);
-        // Retry once after 15 seconds
+        // Retry once after 15 seconds if the immediate push fails (e.g. offline)
         retryTimer.current = setTimeout(async () => {
           const retry = await pushToCloud(syncCode, buildPayload());
           if (retry.ok) {
@@ -331,7 +330,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           }
         }, 15_000);
       }
-    }, 1500);
+    });
   }, [syncCode, buildPayload]);
 
   const sincronizarAgora = useCallback(async () => {
