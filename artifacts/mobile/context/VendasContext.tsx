@@ -22,6 +22,8 @@ export interface VendaItem {
 export interface DiaVenda {
   itens: VendaItem[];
   margem: number;
+  /** Unix ms timestamp of last local write — used for conflict resolution */
+  _updatedAt?: number;
 }
 
 export interface ConfigMes {
@@ -82,6 +84,67 @@ function storageKeyConfigs(profileId: string) {
   return `@diario_vendas:configs_v2:${profileId}`;
 }
 
+/**
+ * Merges cloud dias into a local DiasMap using last-write-wins semantics.
+ * Local wins if its _updatedAt >= cloud's updatedAt. Cloud wins otherwise.
+ */
+function mergeDias(
+  local: DiasMap,
+  cloudEntries: Array<{ data: string; itensJson: string; margem: string; updatedAt?: string | null }>,
+): DiasMap {
+  const merged: DiasMap = { ...local };
+  for (const entry of cloudEntries) {
+    try {
+      const cloudDia: DiaVenda = {
+        itens: JSON.parse(entry.itensJson),
+        margem: parseFloat(entry.margem),
+      };
+      const cloudTs = entry.updatedAt ? new Date(entry.updatedAt).getTime() : 0;
+      const localTs = local[entry.data]?._updatedAt ?? 0;
+
+      if (!local[entry.data] || cloudTs > localTs) {
+        // Cloud is newer or local has no entry — use cloud version (preserve local _updatedAt if cloud wins to avoid re-overwriting)
+        merged[entry.data] = { ...cloudDia, _updatedAt: localTs || cloudTs };
+      }
+      // else: local is newer, keep local (already in merged)
+    } catch (e) {
+      console.warn("[sync] Falha ao processar dia da nuvem:", entry.data, e);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Merges cloud configs into a local ConfigMap using last-write-wins semantics.
+ * Uses a separate timestamps map stored in AsyncStorage for configs.
+ */
+function mergeConfigs(
+  local: ConfigMap,
+  localTs: Record<string, number>,
+  cloudEntries: Array<{ mesId: string; configJson: string; updatedAt?: string | null }>,
+): { configs: ConfigMap; timestamps: Record<string, number> } {
+  const merged: ConfigMap = { ...local };
+  const timestamps: Record<string, number> = { ...localTs };
+
+  for (const entry of cloudEntries) {
+    try {
+      const cloudConfig = JSON.parse(entry.configJson) as ConfigMes;
+      const cloudTs = entry.updatedAt ? new Date(entry.updatedAt).getTime() : 0;
+      const localEntryTs = localTs[entry.mesId] ?? 0;
+
+      if (!local[entry.mesId] || cloudTs > localEntryTs) {
+        merged[entry.mesId] = cloudConfig;
+        timestamps[entry.mesId] = localEntryTs || cloudTs;
+      }
+    } catch (e) {
+      console.warn("[sync] Falha ao processar config da nuvem:", entry.mesId, e);
+    }
+  }
+  return { configs: merged, timestamps };
+}
+
+const KEY_CONFIG_TS = (profileId: string) => `@diario_vendas:configs_ts_v1:${profileId}`;
+
 export function VendasProvider({ children }: { children: React.ReactNode }) {
   const { perfilAtivo, perfis, syncCode } = useProfile();
   const profileId = perfilAtivo?.id ?? "default";
@@ -92,16 +155,28 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
   const [lastSync, setLastSync] = useState<Date | null>(null);
 
-  // Debounce timer for auto-sync
+  // Debounce timers for auto-sync and retry
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Stable refs to latest state — used in callbacks to avoid stale closures
   const diasRef = useRef<DiasMap>({});
   const configsRef = useRef<ConfigMap>({});
+  const configTsRef = useRef<Record<string, number>>({});
 
   diasRef.current = dias;
   configsRef.current = configs;
 
-  // Recarrega dados sempre que o perfil ativo mudar
+  // Cleanup timers on unmount
+  useEffect(() => () => {
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+  }, []);
+
+  // Reload data whenever the active profile changes — with cancellation guard
   useEffect(() => {
+    let cancelled = false;
+
     setLoading(true);
     setDias({});
     setConfigs({});
@@ -110,7 +185,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        const [rawDias, rawConfigs] = await Promise.all([
+        const [rawDias, rawConfigs, rawConfigTs] = await Promise.all([
           AsyncStorage.multiGet([
             storageKeyDias(profileId),
             ...(profileId === "default" ? ["@diario_vendas:dias_v3"] : []),
@@ -119,74 +194,111 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
             storageKeyConfigs(profileId),
             ...(profileId === "default" ? ["@diario_vendas:configs_v2"] : []),
           ]),
+          AsyncStorage.getItem(KEY_CONFIG_TS(profileId)),
         ]);
+
+        if (cancelled) return;
 
         const diasVal = rawDias[0][1] ?? (profileId === "default" ? rawDias[1]?.[1] : null);
         const configsVal = rawConfigs[0][1] ?? (profileId === "default" ? rawConfigs[1]?.[1] : null);
 
-        if (diasVal) setDias(JSON.parse(diasVal));
-        if (configsVal) setConfigs(JSON.parse(configsVal));
-      } catch {
-        // ignore
+        let parsedDias: DiasMap = {};
+        let parsedConfigs: ConfigMap = {};
+        let parsedConfigTs: Record<string, number> = {};
+
+        if (diasVal) {
+          try { parsedDias = JSON.parse(diasVal); }
+          catch (e) { console.warn("[storage] Falha ao ler dias:", e); }
+        }
+        if (configsVal) {
+          try { parsedConfigs = JSON.parse(configsVal); }
+          catch (e) { console.warn("[storage] Falha ao ler configs:", e); }
+        }
+        if (rawConfigTs) {
+          try { parsedConfigTs = JSON.parse(rawConfigTs); }
+          catch { /* first run */ }
+        }
+
+        if (!cancelled) {
+          setDias(parsedDias);
+          setConfigs(parsedConfigs);
+          configTsRef.current = parsedConfigTs;
+        }
+      } catch (e) {
+        console.warn("[storage] Erro ao carregar dados do perfil:", e);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+
+    return () => { cancelled = true; };
   }, [profileId]);
 
-  // Pull from cloud when profile + syncCode are ready
+  // Pull from cloud when profile + syncCode are ready, with cancellation guard
   useEffect(() => {
     if (!syncCode || loading) return;
+    let cancelled = false;
+
     (async () => {
       setSyncStatus("syncing");
       try {
         const cloud = await pullFromCloud(syncCode);
-        if (!cloud) { setSyncStatus("error"); return; }
+        if (cancelled) return;
 
-        // Merge cloud data for this profile into local storage
-        const cloudDias: DiasMap = {};
-        for (const d of cloud.dias.filter((x) => x.profileId === profileId)) {
-          try { cloudDias[d.data] = { itens: JSON.parse(d.itensJson), margem: parseFloat(d.margem) }; } catch { /* skip */ }
+        if (!cloud) {
+          setSyncStatus("error");
+          return;
         }
 
-        const cloudConfigs: ConfigMap = {};
-        for (const c of cloud.configs.filter((x) => x.profileId === profileId)) {
-          try { cloudConfigs[c.mesId] = JSON.parse(c.configJson); } catch { /* skip */ }
-        }
+        const myDias = cloud.dias.filter((x) => x.profileId === profileId);
+        const myConfigs = cloud.configs.filter((x) => x.profileId === profileId);
 
-        // Merge — cloud wins for keys it has, local wins otherwise
         setDias((prev) => {
-          const merged = { ...prev, ...cloudDias };
-          AsyncStorage.setItem(storageKeyDias(profileId), JSON.stringify(merged));
-          return merged;
-        });
-        setConfigs((prev) => {
-          const merged = { ...prev, ...cloudConfigs };
-          AsyncStorage.setItem(storageKeyConfigs(profileId), JSON.stringify(merged));
+          if (cancelled) return prev;
+          const merged = mergeDias(prev, myDias);
+          AsyncStorage.setItem(storageKeyDias(profileId), JSON.stringify(merged)).catch(
+            (e) => console.warn("[storage] Falha ao salvar dias mesclados:", e)
+          );
           return merged;
         });
 
-        setSyncStatus("ok");
-        setLastSync(new Date());
-      } catch {
-        setSyncStatus("error");
+        setConfigs((prev) => {
+          if (cancelled) return prev;
+          const { configs: merged, timestamps } = mergeConfigs(prev, configTsRef.current, myConfigs);
+          configTsRef.current = timestamps;
+          AsyncStorage.setItem(storageKeyConfigs(profileId), JSON.stringify(merged)).catch(
+            (e) => console.warn("[storage] Falha ao salvar configs mescladas:", e)
+          );
+          AsyncStorage.setItem(KEY_CONFIG_TS(profileId), JSON.stringify(timestamps)).catch(() => {});
+          return merged;
+        });
+
+        if (!cancelled) {
+          setSyncStatus("ok");
+          setLastSync(new Date());
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.warn("[sync] Erro ao sincronizar com a nuvem:", e);
+          setSyncStatus("error");
+        }
       }
     })();
+
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncCode, profileId]);
 
   const buildPayload = useCallback(() => {
-    const d = diasRef.current;
-    const c = configsRef.current;
     return {
       profiles: perfis.map((p) => ({ profileId: p.id, nome: p.nome })),
-      dias: Object.entries(d).map(([data, dia]) => ({
+      dias: Object.entries(diasRef.current).map(([data, dia]) => ({
         profileId,
         data,
         itensJson: JSON.stringify(dia.itens),
         margem: String(dia.margem),
       })),
-      configs: Object.entries(c).map(([mesId, config]) => ({
+      configs: Object.entries(configsRef.current).map(([mesId, config]) => ({
         profileId,
         mesId,
         configJson: JSON.stringify(config),
@@ -197,40 +309,85 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   const schedulSync = useCallback(() => {
     if (!syncCode) return;
     if (syncTimer.current) clearTimeout(syncTimer.current);
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+
     syncTimer.current = setTimeout(async () => {
       setSyncStatus("syncing");
       const result = await pushToCloud(syncCode, buildPayload());
-      setSyncStatus(result.ok ? "ok" : "error");
-      if (result.ok) setLastSync(new Date());
+      if (result.ok) {
+        setSyncStatus("ok");
+        setLastSync(new Date());
+      } else {
+        setSyncStatus("error");
+        console.warn("[sync] Push falhou, agendando retry em 15s:", result.error);
+        // Retry once after 15 seconds
+        retryTimer.current = setTimeout(async () => {
+          const retry = await pushToCloud(syncCode, buildPayload());
+          if (retry.ok) {
+            setSyncStatus("ok");
+            setLastSync(new Date());
+          } else {
+            console.warn("[sync] Retry também falhou:", retry.error);
+          }
+        }, 15_000);
+      }
     }, 1500);
   }, [syncCode, buildPayload]);
 
   const sincronizarAgora = useCallback(async () => {
     if (!syncCode) return;
     setSyncStatus("syncing");
-    // First pull, then push (merge)
-    const cloud = await pullFromCloud(syncCode);
-    if (cloud) {
-      const cloudDias: DiasMap = {};
-      for (const d of cloud.dias.filter((x) => x.profileId === profileId)) {
-        try { cloudDias[d.data] = { itens: JSON.parse(d.itensJson), margem: parseFloat(d.margem) }; } catch { /* skip */ }
-      }
-      const cloudConfigs: ConfigMap = {};
-      for (const c of cloud.configs.filter((x) => x.profileId === profileId)) {
-        try { cloudConfigs[c.mesId] = JSON.parse(c.configJson); } catch { /* skip */ }
-      }
-      setDias((prev) => { const m = { ...prev, ...cloudDias }; diasRef.current = m; AsyncStorage.setItem(storageKeyDias(profileId), JSON.stringify(m)); return m; });
-      setConfigs((prev) => { const m = { ...prev, ...cloudConfigs }; configsRef.current = m; AsyncStorage.setItem(storageKeyConfigs(profileId), JSON.stringify(m)); return m; });
-    }
 
-    const result = await pushToCloud(syncCode, buildPayload());
-    setSyncStatus(result.ok ? "ok" : "error");
-    if (result.ok) setLastSync(new Date());
+    try {
+      // Pull first so we don't overwrite data from other devices
+      const cloud = await pullFromCloud(syncCode);
+      if (cloud) {
+        const myDias = cloud.dias.filter((x) => x.profileId === profileId);
+        const myConfigs = cloud.configs.filter((x) => x.profileId === profileId);
+
+        setDias((prev) => {
+          const merged = mergeDias(prev, myDias);
+          diasRef.current = merged;
+          AsyncStorage.setItem(storageKeyDias(profileId), JSON.stringify(merged)).catch(
+            (e) => console.warn("[storage] Falha ao salvar dias:", e)
+          );
+          return merged;
+        });
+
+        setConfigs((prev) => {
+          const { configs: merged, timestamps } = mergeConfigs(prev, configTsRef.current, myConfigs);
+          configsRef.current = merged;
+          configTsRef.current = timestamps;
+          AsyncStorage.setItem(storageKeyConfigs(profileId), JSON.stringify(merged)).catch(() => {});
+          AsyncStorage.setItem(KEY_CONFIG_TS(profileId), JSON.stringify(timestamps)).catch(() => {});
+          return merged;
+        });
+      }
+
+      // Then push our (now merged) data
+      const result = await pushToCloud(syncCode, buildPayload());
+      setSyncStatus(result.ok ? "ok" : "error");
+      if (result.ok) setLastSync(new Date());
+      else console.warn("[sync] sincronizarAgora push falhou:", result.error);
+    } catch (e) {
+      console.warn("[sync] Erro em sincronizarAgora:", e);
+      setSyncStatus("error");
+    }
   }, [syncCode, profileId, buildPayload]);
 
-  const persistirDias = useCallback(async (novo: DiasMap) => {
-    await AsyncStorage.setItem(storageKeyDias(profileId), JSON.stringify(novo));
-    setDias(novo);
+  /**
+   * Persist a new dias map to storage.
+   * changedKey: the date key that was just written — gets stamped with current time
+   *             so local changes beat older cloud versions on next merge.
+   */
+  const persistirDias = useCallback(async (novo: DiasMap, changedKey?: string) => {
+    const now = Date.now();
+    let stamped = novo;
+    if (changedKey && novo[changedKey]) {
+      stamped = { ...novo, [changedKey]: { ...novo[changedKey], _updatedAt: now } };
+    }
+    await AsyncStorage.setItem(storageKeyDias(profileId), JSON.stringify(stamped));
+    setDias(stamped);
     schedulSync();
   }, [profileId, schedulSync]);
 
@@ -238,7 +395,10 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     async (data: string, item: Omit<VendaItem, "id" | "hora">) => {
       const diaAtual = dias[data] ?? { itens: [], margem: 0 };
       const novoItem: VendaItem = { ...item, id: gerarId(), hora: new Date().toISOString() };
-      await persistirDias({ ...dias, [data]: { ...diaAtual, itens: [...diaAtual.itens, novoItem] } });
+      await persistirDias(
+        { ...dias, [data]: { ...diaAtual, itens: [...diaAtual.itens, novoItem] } },
+        data,
+      );
     },
     [dias, persistirDias]
   );
@@ -247,7 +407,10 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     async (data: string, itemId: string) => {
       const diaAtual = dias[data];
       if (!diaAtual) return;
-      await persistirDias({ ...dias, [data]: { ...diaAtual, itens: diaAtual.itens.filter((i) => i.id !== itemId) } });
+      await persistirDias(
+        { ...dias, [data]: { ...diaAtual, itens: diaAtual.itens.filter((i) => i.id !== itemId) } },
+        data,
+      );
     },
     [dias, persistirDias]
   );
@@ -255,7 +418,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   const salvarMargemDia = useCallback(
     async (data: string, margem: number) => {
       const diaAtual = dias[data] ?? { itens: [], margem: 0 };
-      await persistirDias({ ...dias, [data]: { ...diaAtual, margem } });
+      await persistirDias({ ...dias, [data]: { ...diaAtual, margem } }, data);
     },
     [dias, persistirDias]
   );
@@ -264,9 +427,12 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     async (data: string) => {
       const novo = { ...dias };
       delete novo[data];
-      await persistirDias(novo);
+      // No changedKey since the key is removed — no timestamp needed
+      await AsyncStorage.setItem(storageKeyDias(profileId), JSON.stringify(novo));
+      setDias(novo);
+      schedulSync();
     },
-    [dias, persistirDias]
+    [dias, profileId, schedulSync]
   );
 
   const getDia = useCallback((data: string): DiaVenda | null => dias[data] ?? null, [dias]);
@@ -290,7 +456,13 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   const salvarConfigMes = useCallback(
     async (mesId: string, config: ConfigMes) => {
       const novo = { ...configs, [mesId]: config };
-      await AsyncStorage.setItem(storageKeyConfigs(profileId), JSON.stringify(novo));
+      const now = Date.now();
+      const novoTs = { ...configTsRef.current, [mesId]: now };
+      configTsRef.current = novoTs;
+      await Promise.all([
+        AsyncStorage.setItem(storageKeyConfigs(profileId), JSON.stringify(novo)),
+        AsyncStorage.setItem(KEY_CONFIG_TS(profileId), JSON.stringify(novoTs)),
+      ]);
       setConfigs(novo);
       schedulSync();
     },
