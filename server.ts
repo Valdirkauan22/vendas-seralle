@@ -202,7 +202,14 @@ async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
-  // Pull all data for a sync code
+  // A sincronização pública por código foi desativada. Dados comerciais
+  // são sincronizados exclusivamente no Firestore autenticado do usuário.
+  app.use("/api/sync", (_req, res) => {
+    res.status(410).json({ error: "Sincronização pública desativada. Entre com sua conta para sincronizar." });
+  });
+
+  // Implementação legada mantida temporariamente abaixo para migração,
+  // mas fica inacessível pelo bloqueio anterior.
   app.get("/api/sync/:syncCode", async (req, res) => {
     const syncCode = (req.params.syncCode || "").trim().toUpperCase();
     if (!isValidSyncCode(syncCode)) {
