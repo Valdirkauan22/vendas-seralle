@@ -4,6 +4,7 @@ import { useProfile } from "./ProfileContext";
 import { useAuth } from "./AuthContext";
 import { collection, doc, getDocs, setDoc, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { calcularTotaisDia, calcularTotaisMes } from "@/utils/commercialCalculations";
 
 export const CONFIG_MES_PADRAO: ConfigMes = {
   cotaA: { valor: 55000, pares: 410, margem: 0, premio: 150 },
@@ -920,100 +921,22 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   const getDiaTotais = useCallback(
     (data: string): TotaisDia => {
       const dia = dias[data];
-      if (!dia || !dia.itens.length) {
-        return {
-          valor: 0,
-          pares: 0,
-          qtd: 0,
-          produtosAgregados: 0,
-          atendimentosTotais: dia?.atendimentosTotais || 0,
-          pa: 0,
-          taxaConversao: 0,
-        };
-      }
-      const valor = dia.itens.reduce((acc, item) => acc + item.valor, 0);
-      const pares = dia.itens.reduce((acc, item) => acc + item.pares, 0);
-      const agregados = dia.itens.reduce(
-        (acc, item) => acc + (item.produtosAgregados || 0),
-        0
-      );
-      const qtdVendas = dia.itens.length;
-      const totalPecas = pares + agregados;
-      const pa = qtdVendas > 0 ? totalPecas / qtdVendas : 0;
-      const atendimentos = dia.atendimentosTotais || qtdVendas;
-      const taxaConversao =
-        atendimentos > 0 ? Math.min(100, (qtdVendas / atendimentos) * 100) : 100;
-
+      const calculado = calcularTotaisDia(dia);
       return {
-        valor,
-        pares,
-        qtd: qtdVendas,
-        produtosAgregados: agregados,
-        atendimentosTotais: atendimentos,
-        pa,
-        taxaConversao,
+        valor: calculado.valor,
+        pares: calculado.pares,
+        qtd: calculado.qtdVendas,
+        produtosAgregados: calculado.produtosAgregados,
+        atendimentosTotais: dia?.atendimentosTotais || calculado.qtdVendas,
+        pa: calculado.pa,
+        taxaConversao: calculado.taxaConversao,
       };
     },
     [dias]
   );
 
   const getTotalMes = useCallback(
-    (mesId: string): TotaisMes => {
-      let totalValor = 0;
-      let totalPares = 0;
-      let totalAgregados = 0;
-      let totalAtendimentos = 0;
-      let totalMargemPonderada = 0;
-      let somaPesosValor = 0;
-      let diasComVenda = 0;
-      let qtdVendas = 0;
-
-      Object.entries(dias).forEach(([data, dia]) => {
-        if (data.startsWith(mesId)) {
-          const diaValor = dia.itens.reduce((sum, i) => sum + i.valor, 0);
-          const diaPares = dia.itens.reduce((sum, i) => sum + i.pares, 0);
-          const diaAgregados = dia.itens.reduce(
-            (sum, i) => sum + (i.produtosAgregados || 0),
-            0
-          );
-
-          if (dia.itens.length > 0 || diaValor > 0) {
-            totalValor += diaValor;
-            totalPares += diaPares;
-            totalAgregados += diaAgregados;
-            diasComVenda++;
-            qtdVendas += dia.itens.length;
-            totalAtendimentos += dia.atendimentosTotais || dia.itens.length;
-
-            if (dia.margem > 0 && diaValor > 0) {
-              totalMargemPonderada += dia.margem * diaValor;
-              somaPesosValor += diaValor;
-            }
-          }
-        }
-      });
-
-      const margemMedia =
-        somaPesosValor > 0 ? totalMargemPonderada / somaPesosValor : 0;
-      const totalPecas = totalPares + totalAgregados;
-      const paMedio = qtdVendas > 0 ? totalPecas / qtdVendas : 0;
-      const taxaConversao =
-        totalAtendimentos > 0
-          ? Math.min(100, (qtdVendas / totalAtendimentos) * 100)
-          : 100;
-
-      return {
-        valor: totalValor,
-        pares: totalPares,
-        margem: margemMedia,
-        dias: diasComVenda,
-        qtdVendas,
-        produtosAgregados: totalAgregados,
-        atendimentosTotais: totalAtendimentos,
-        paMedio,
-        taxaConversao,
-      };
-    },
+    (mesId: string): TotaisMes => calcularTotaisMes(dias, mesId),
     [dias]
   );
 
