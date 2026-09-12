@@ -73,7 +73,9 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   const [dias, setDias] = useState<Record<string, DiaVenda>>({});
   const [configs, setConfigs] = useState<Record<string, ConfigMes>>({});
   const diasRef = useRef<Record<string, DiaVenda>>({});
-  const profileId = user?.uid || perfilAtivo?.id || "default";
+  // O perfil comercial é independente da conta de autenticação.
+  // Isso evita que vários perfis da mesma conta compartilhem os mesmos documentos.
+  const profileId = perfilAtivo?.id || user?.uid || "default";
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Keep diasRef updated in sync with dias state
@@ -120,7 +122,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
       const loadFromFirestore = async () => {
         try {
           // Load vendas
-          const vendasCol = collection(db, "users", user.uid, "vendas");
+          const vendasCol = collection(db, "users", user.uid, "profiles", profileId, "vendas");
           const vendasSnap = await getDocs(vendasCol);
           const firestoreDias: Record<string, DiaVenda> = {};
           vendasSnap.forEach((d) => {
@@ -137,7 +139,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           });
 
           // Load configs
-          const configCol = collection(db, "users", user.uid, "configMes");
+          const configCol = collection(db, "users", user.uid, "profiles", profileId, "configMes");
           const configSnap = await getDocs(configCol);
           const firestoreConfigs: Record<string, ConfigMes> = {};
           configSnap.forEach((c) => {
@@ -190,7 +192,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
             const dVal = diasRef.current[dKey];
             if (dVal) {
               try {
-                const diaDoc = doc(db, "users", user.uid, "vendas", dKey);
+                const diaDoc = doc(db, "users", user.uid, "profiles", profileId, "vendas", dKey);
                 await setDoc(diaDoc, {
                   data: dKey,
                   itens: dVal.itens || [],
@@ -211,7 +213,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
             if (!firestoreDias[dKey]) {
               try {
                 const nowIso = new Date().toISOString();
-                const diaDoc = doc(db, "users", user.uid, "vendas", dKey);
+                const diaDoc = doc(db, "users", user.uid, "profiles", profileId, "vendas", dKey);
                 await setDoc(diaDoc, {
                   data: dKey,
                   itens: dVal.itens || [],
@@ -275,7 +277,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
       // Save to Firebase Firestore if logged in
       if (user?.uid && updatedData) {
         try {
-          const diaDoc = doc(db, "users", user.uid, "vendas", updatedData);
+          const diaDoc = doc(db, "users", user.uid, "profiles", profileId, "vendas", updatedData);
           const diaContent = updatedDias[updatedData];
           if (diaContent) {
             await setDoc(diaDoc, {
@@ -328,7 +330,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
       // Save to Firebase Firestore if logged in
       if (user?.uid && updatedMesId) {
         try {
-          const cfgDoc = doc(db, "users", user.uid, "configMes", updatedMesId);
+          const cfgDoc = doc(db, "users", user.uid, "profiles", profileId, "configMes", updatedMesId);
           await setDoc(cfgDoc, updatedConfigs[updatedMesId]);
         } catch (err) {
           console.warn("Erro ao persistir cota no Firestore:", err);
@@ -423,7 +425,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
       if (user?.uid) {
         try {
           for (const [dataKey, diaVal] of Object.entries(diasRef.current)) {
-            const diaDoc = doc(db, "users", user.uid, "vendas", dataKey);
+            const diaDoc = doc(db, "users", user.uid, "profiles", profileId, "vendas", dataKey);
             await setDoc(
               diaDoc,
               {
@@ -440,7 +442,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           }
 
           for (const [mesKey, cfgVal] of Object.entries(configs)) {
-            const cfgDoc = doc(db, "users", user.uid, "configMes", mesKey);
+            const cfgDoc = doc(db, "users", user.uid, "profiles", profileId, "configMes", mesKey);
             await setDoc(cfgDoc, cfgVal, { merge: true });
           }
 
@@ -459,17 +461,13 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         profiles: allProfilesPayload,
         dias: allDiasPayload,
         configs: allConfigsPayload,
-        rawDias: diasRef.current,
-        rawConfigs: configs,
       });
 
       // 3. Puxa atualizações se houver
       const cloud = await puxarDadosCloud(syncCode);
       if (cloud) {
         let cloudDiasForCurrent: Record<string, DiaVenda> = {};
-        if (cloud.rawDias && typeof cloud.rawDias === "object") {
-          cloudDiasForCurrent = cloud.rawDias;
-        } else if (Array.isArray(cloud.dias)) {
+        if (Array.isArray(cloud.dias)) {
           cloud.dias.forEach((d: any) => {
             if (d.profileId === profileId) {
               try {
@@ -510,9 +508,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem(diasKey, JSON.stringify(mergedDias));
 
         let cloudConfigsForCurrent: Record<string, ConfigMes> = {};
-        if (cloud.rawConfigs && typeof cloud.rawConfigs === "object") {
-          cloudConfigsForCurrent = cloud.rawConfigs;
-        } else if (Array.isArray(cloud.configs)) {
+        if (Array.isArray(cloud.configs)) {
           cloud.configs.forEach((c: any) => {
             if (c.profileId === profileId) {
               try {
@@ -587,10 +583,9 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         let diasToMerge: Record<string, DiaVenda> = {};
         let configsToMerge: Record<string, ConfigMes> = {};
 
-        if (cloudData.rawDias && typeof cloudData.rawDias === "object") {
-          diasToMerge = cloudData.rawDias;
-        } else if (Array.isArray(cloudData.dias)) {
+        if (Array.isArray(cloudData.dias)) {
           cloudData.dias.forEach((d: any) => {
+            if (d.profileId !== profileId) return;
             try {
               let parsedItens = [];
               let parsedFolga = false;
@@ -621,10 +616,9 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           });
         }
 
-        if (cloudData.rawConfigs && typeof cloudData.rawConfigs === "object") {
-          configsToMerge = cloudData.rawConfigs;
-        } else if (Array.isArray(cloudData.configs)) {
+        if (Array.isArray(cloudData.configs)) {
           cloudData.configs.forEach((c: any) => {
+            if (c.profileId !== profileId) return;
             try {
               configsToMerge[c.mesId] =
                 typeof c.configJson === "string" ? JSON.parse(c.configJson) : c.configJson;
@@ -658,7 +652,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         if (user?.uid) {
           try {
             for (const [dataKey, diaVal] of Object.entries(mergedDias)) {
-              const diaDoc = doc(db, "users", user.uid, "vendas", dataKey);
+              const diaDoc = doc(db, "users", user.uid, "profiles", profileId, "vendas", dataKey);
               await setDoc(
                 diaDoc,
                 {
@@ -675,7 +669,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
             }
 
             for (const [mesKey, cfgVal] of Object.entries(mergedConfigs)) {
-              const cfgDoc = doc(db, "users", user.uid, "configMes", mesKey);
+              const cfgDoc = doc(db, "users", user.uid, "profiles", profileId, "configMes", mesKey);
               await setDoc(cfgDoc, cfgVal, { merge: true });
             }
           } catch (uErr) {
@@ -1175,7 +1169,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         if (user?.uid) {
           try {
             for (const [dataKey, diaVal] of Object.entries(mergedDias)) {
-              const diaDoc = doc(db, "users", user.uid, "vendas", dataKey);
+              const diaDoc = doc(db, "users", user.uid, "profiles", profileId, "vendas", dataKey);
               await setDoc(
                 diaDoc,
                 {
@@ -1192,7 +1186,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
             }
 
             for (const [mesKey, cfgVal] of Object.entries(mergedConfigs)) {
-              const cfgDoc = doc(db, "users", user.uid, "configMes", mesKey);
+              const cfgDoc = doc(db, "users", user.uid, "profiles", profileId, "configMes", mesKey);
               await setDoc(cfgDoc, cfgVal, { merge: true });
             }
           } catch (cloudErr) {
