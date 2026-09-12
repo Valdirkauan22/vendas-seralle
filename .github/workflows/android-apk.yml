@@ -1,0 +1,79 @@
+name: Gerar APK Seralle
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "public/**"
+      - "package.json"
+      - "capacitor.config.ts"
+      - ".github/workflows/android-apk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-seralle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gerar-apk:
+    name: Compilar APK Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Baixar projeto
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Instalar dependencias
+        run: npm install --legacy-peer-deps
+
+      - name: Validar TypeScript
+        run: npm run lint
+
+      - name: Executar testes
+        run: npm test
+
+      - name: Gerar aplicacao web
+        run: npm run build
+
+      - name: Criar projeto Android
+        run: npx cap add android
+
+      - name: Sincronizar arquivos
+        run: npx cap sync android
+
+      - name: Definir versao Android
+        run: |
+          sed -i 's/versionCode 1/versionCode 3/' android/app/build.gradle
+          sed -i 's/versionName "1.0"/versionName "1.1.0"/' android/app/build.gradle
+
+      - name: Compilar APK instalavel
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Publicar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: seralle-vendas-v1.1.0-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
