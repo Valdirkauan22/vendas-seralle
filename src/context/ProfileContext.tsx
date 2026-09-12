@@ -187,15 +187,9 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // 2. Fallback: API persistente em disco do Express
-    try {
-      const res = await fetch(`/api/sync/${formatted}`);
-      if (!res.ok) return null;
-      return await res.json();
-    } catch (e) {
-      console.warn("Cloud pull error", e);
-      return null;
-    }
+    // Não existe fallback público: dados de vendas só podem ser lidos
+    // dentro da área autenticada do próprio usuário.
+    return null;
   }, [user?.uid]);
 
   const enviarDadosCloud = useCallback(async (code: string, payload: any): Promise<boolean> => {
@@ -223,18 +217,8 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // 2. Grava também no servidor (persistente em disco) para redundância
-    try {
-      const res = await fetch(`/api/sync/${formatted}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) saved = true;
-    } catch (e) {
-      console.warn("Cloud push error", e);
-    }
-
+    // A cópia autenticada no Firestore é a única fonte de verdade.
+    // Usuários offline continuam protegidos pelo backup local exportável.
     return saved;
   }, [user?.uid]);
 
