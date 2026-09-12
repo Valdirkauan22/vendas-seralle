@@ -121,7 +121,8 @@ export function calcularTotaisMes(dias: Record<string, DiaVenda>, mesId: string)
 
   const margemMedia = somaPesosValor > 0 ? totalMargemPonderada / somaPesosValor : 0;
   const totalPecas = totalPares + totalAgregados;
-  const paMedio = qtdVendas > 0 ? totalPecas / qtdVendas : 0;
+  // Mantém a mesma definição do cálculo diário: peças por atendimento.
+  const paMedio = totalAtendimentos > 0 ? totalPecas / totalAtendimentos : 0;
   const taxaConversao =
     totalAtendimentos > 0 ? Math.min(100, (qtdVendas / totalAtendimentos) * 100) : 100;
 
