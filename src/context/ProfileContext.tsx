@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { Perfil } from "@/types";
 import { gerarSyncCode } from "@/utils/formatters";
+import { useAuth } from "./AuthContext";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 const STORAGE_KEY_PERFIS = "@diario_vendas:perfis_v1";
 const STORAGE_KEY_ATIVO = "@diario_vendas:perfil_ativo_v1";
@@ -33,6 +36,8 @@ interface ProfileContextValue {
 const ProfileContext = createContext<ProfileContextValue | null>(null);
 
 export function ProfileProvider({ children }: { children: React.ReactNode }) {
+  const { user, userProfile } = useAuth();
+
   const [perfis, setPerfis] = useState<Perfil[]>([PERFIL_PADRAO]);
   const [perfilAtivo, setPerfilAtivo] = useState<Perfil | null>(PERFIL_PADRAO);
   const [syncCode, setSyncCodeState] = useState<string | null>(null);
@@ -40,8 +45,23 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [loaded, setLoaded] = useState(false);
 
-  // Load from localStorage on startup
+  // Sync profile state with authenticated user
   useEffect(() => {
+    if (user && userProfile) {
+      const authPerfil: Perfil = {
+        id: user.uid,
+        nome: userProfile.displayName || user.displayName || "Vendedora",
+        email: user.email || undefined,
+        loja: userProfile.loja,
+        createdAt: userProfile.createdAt || new Date().toISOString(),
+      };
+      setPerfis([authPerfil]);
+      setPerfilAtivo(authPerfil);
+      setSyncCodeState(user.uid.slice(0, 8).toUpperCase());
+      setLoaded(true);
+      return;
+    }
+
     try {
       const storedPerfis = localStorage.getItem(STORAGE_KEY_PERFIS);
       const storedAtivo = localStorage.getItem(STORAGE_KEY_ATIVO);
@@ -76,7 +96,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoaded(true);
     }
-  }, []);
+  }, [user, userProfile]);
 
   const salvarPerfisLocal = (novosPerfis: Perfil[], novoAtivoId?: string) => {
     setPerfis(novosPerfis);
@@ -144,8 +164,30 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   }, [setSyncCode]);
 
   const puxarDadosCloud = useCallback(async (code: string) => {
+    const formatted = (code || "").trim().toUpperCase();
+    if (!formatted) return null;
+
+    // 1. Prioridade: Firestore (persistente, banco real na nuvem)
     try {
-      const res = await fetch(`/api/sync/${code}`);
+      const docRef = doc(db, "sync_stores", formatted);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        return {
+          profiles: data.profiles || [],
+          dias: data.dias || [],
+          configs: data.configs || [],
+          rawDias: data.rawDias || null,
+          rawConfigs: data.rawConfigs || null,
+        };
+      }
+    } catch (fsErr) {
+      console.warn("Aviso ao buscar sync no Firestore:", fsErr);
+    }
+
+    // 2. Fallback: API do Express
+    try {
+      const res = await fetch(`/api/sync/${formatted}`);
       if (!res.ok) return null;
       return await res.json();
     } catch (e) {
@@ -155,17 +197,41 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const enviarDadosCloud = useCallback(async (code: string, payload: any): Promise<boolean> => {
+    const formatted = (code || "").trim().toUpperCase();
+    if (!formatted) return false;
+
+    let saved = false;
+
+    // 1. Grava no Firestore na coleção permanente sync_stores
     try {
-      const res = await fetch(`/api/sync/${code}`, {
+      const docRef = doc(db, "sync_stores", formatted);
+      await setDoc(
+        docRef,
+        {
+          syncCode: formatted,
+          ...payload,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      saved = true;
+    } catch (fsErr) {
+      console.warn("Aviso ao gravar sync no Firestore:", fsErr);
+    }
+
+    // 2. Grava também no servidor para redundância
+    try {
+      const res = await fetch(`/api/sync/${formatted}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      return res.ok;
+      if (res.ok) saved = true;
     } catch (e) {
       console.warn("Cloud push error", e);
-      return false;
     }
+
+    return saved;
   }, []);
 
   return (

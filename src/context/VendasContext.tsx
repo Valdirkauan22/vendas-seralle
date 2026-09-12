@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { ConfigMes, DiaVenda, TotaisDia, TotaisMes, VendaItem } from "@/types";
 import { useProfile } from "./ProfileContext";
+import { useAuth } from "./AuthContext";
+import { collection, doc, getDocs, setDoc, deleteDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export const CONFIG_MES_PADRAO: ConfigMes = {
   cotaA: { valor: 55000, pares: 410, margem: 0, premio: 150 },
@@ -13,9 +16,20 @@ export const CONFIG_MES_PADRAO: ConfigMes = {
 interface VendasContextValue {
   dias: Record<string, DiaVenda>;
   configs: Record<string, ConfigMes>;
-  adicionarItem: (data: string, item: Omit<VendaItem, "id" | "hora">) => Promise<void>;
+  adicionarItem: (
+    data: string,
+    item: Omit<VendaItem, "id" | "hora">
+  ) => Promise<void>;
+  editarItem: (
+    data: string,
+    itemId: string,
+    itemUpdates: Partial<Omit<VendaItem, "id">>
+  ) => Promise<void>;
+  restaurarItem: (data: string, item: VendaItem) => Promise<void>;
   removerItem: (data: string, itemId: string) => Promise<void>;
   salvarMargemDia: (data: string, margem: number) => Promise<void>;
+  salvarAtendimentosDia: (data: string, atendimentos: number) => Promise<void>;
+  salvarAnotacoesDia: (data: string, anotacoes: string) => Promise<void>;
   alternarFolgaDia: (data: string) => Promise<void>;
   removerDia: (data: string) => Promise<void>;
   salvarConfigMes: (mesId: string, config: ConfigMes) => Promise<void>;
@@ -24,6 +38,9 @@ interface VendasContextValue {
   getDia: (data: string) => DiaVenda | null;
   getDiaTotais: (data: string) => TotaisDia;
   sincronizarAgora: () => Promise<boolean>;
+  restaurarPorCodigo: (codigo: string) => Promise<{ success: boolean; message: string; totalDias: number }>;
+  exportarBackup: () => string;
+  importarBackup: (jsonContent: string) => Promise<{ success: boolean; message: string; totalDias: number }>;
   getDadosTodasVendedoras: (mesId: string) => Array<{
     perfilId: string;
     nome: string;
@@ -42,6 +59,7 @@ function getStorageKeys(profileId: string) {
 }
 
 export function VendasProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const {
     perfilAtivo,
     perfis,
@@ -54,53 +72,205 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
 
   const [dias, setDias] = useState<Record<string, DiaVenda>>({});
   const [configs, setConfigs] = useState<Record<string, ConfigMes>>({});
-  const profileId = perfilAtivo?.id ?? "default";
+  const diasRef = useRef<Record<string, DiaVenda>>({});
+  const profileId = user?.uid || perfilAtivo?.id || "default";
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load sales and configs for the current profile
+  // Keep diasRef updated in sync with dias state
+  useEffect(() => {
+    diasRef.current = dias;
+  }, [dias]);
+
+  // Load sales and configs for current user/profile
   useEffect(() => {
     if (!profileId) return;
     const { diasKey, configsKey } = getStorageKeys(profileId);
+    
+    // 1. First load from local storage
     try {
-      const storedDias = localStorage.getItem(diasKey);
-      const storedConfigs = localStorage.getItem(configsKey);
+      let storedDias = localStorage.getItem(diasKey);
+      let storedConfigs = localStorage.getItem(configsKey);
 
-      setDias(storedDias ? JSON.parse(storedDias) : {});
-      setConfigs(storedConfigs ? JSON.parse(storedConfigs) : {});
+      // Migração de resgate: se o usuário acabou de logar com seu UID e ainda não tem dados nessa chave,
+      // mas tinha dados na chave offline/default, herda esses dados para nunca perder o que já anotou!
+      if (!storedDias && profileId !== "default") {
+        const fallbackDias = localStorage.getItem(getStorageKeys("offline_user").diasKey) ||
+                             localStorage.getItem(getStorageKeys("default").diasKey);
+        if (fallbackDias) {
+          storedDias = fallbackDias;
+          localStorage.setItem(diasKey, fallbackDias);
+        }
+      }
+
+      const initialDias = storedDias ? JSON.parse(storedDias) : {};
+      const initialConfigs = storedConfigs ? JSON.parse(storedConfigs) : {};
+
+      setDias(initialDias);
+      diasRef.current = initialDias;
+      setConfigs(initialConfigs);
     } catch (e) {
-      console.warn("Error reading local sales data", e);
+      console.warn("Erro ao ler dados locais", e);
       setDias({});
+      diasRef.current = {};
       setConfigs({});
     }
-  }, [profileId]);
 
-  // Persist dias and trigger cloud sync debounced
+    // 2. If user is logged in to Firebase, load their isolated documents from Firestore
+    if (user?.uid) {
+      const loadFromFirestore = async () => {
+        try {
+          // Load vendas
+          const vendasCol = collection(db, "users", user.uid, "vendas");
+          const vendasSnap = await getDocs(vendasCol);
+          const firestoreDias: Record<string, DiaVenda> = {};
+          vendasSnap.forEach((d) => {
+            const data = d.data();
+            firestoreDias[d.id] = {
+              itens: data.itens || [],
+              margem: Number(data.margem) || 0,
+              folga: Boolean(data.folga),
+              atendimentosTotais: Number(data.atendimentosTotais) || 0,
+              anotacoes: data.anotacoes || "",
+            };
+          });
+
+          // Load configs
+          const configCol = collection(db, "users", user.uid, "configMes");
+          const configSnap = await getDocs(configCol);
+          const firestoreConfigs: Record<string, ConfigMes> = {};
+          configSnap.forEach((c) => {
+            firestoreConfigs[c.id] = c.data() as ConfigMes;
+          });
+
+          if (Object.keys(firestoreDias).length > 0) {
+            setDias((prev) => {
+              // Fusão inteligente: garante que vendas criadas localmente não sejam perdidas
+              const merged: Record<string, DiaVenda> = { ...prev };
+              
+              Object.entries(firestoreDias).forEach(([dataKey, fDia]) => {
+                const existingLocal = merged[dataKey];
+                if (!existingLocal) {
+                  merged[dataKey] = fDia;
+                } else {
+                  // Unir itens por ID único
+                  const itemMap = new Map<string, VendaItem>();
+                  (fDia.itens || []).forEach((it) => it.id && itemMap.set(it.id, it));
+                  (existingLocal.itens || []).forEach((it) => it.id && itemMap.set(it.id, it));
+
+                  merged[dataKey] = {
+                    ...fDia,
+                    itens: Array.from(itemMap.values()),
+                    margem: existingLocal.margem > 0 ? existingLocal.margem : fDia.margem,
+                    folga: existingLocal.folga || fDia.folga,
+                    atendimentosTotais: Math.max(existingLocal.atendimentosTotais || 0, fDia.atendimentosTotais || 0),
+                    anotacoes: existingLocal.anotacoes || fDia.anotacoes || "",
+                  };
+                }
+              });
+
+              diasRef.current = merged;
+              localStorage.setItem(diasKey, JSON.stringify(merged));
+              return merged;
+            });
+          }
+
+          // Se existiam vendas locais que não estavam na nuvem, sobe para o Firestore agora
+          for (const [dKey, dVal] of Object.entries(diasRef.current)) {
+            if (!firestoreDias[dKey]) {
+              try {
+                const diaDoc = doc(db, "users", user.uid, "vendas", dKey);
+                await setDoc(diaDoc, {
+                  data: dKey,
+                  itens: dVal.itens || [],
+                  margem: dVal.margem || 0,
+                  folga: Boolean(dVal.folga),
+                  atendimentosTotais: dVal.atendimentosTotais || 0,
+                  anotacoes: dVal.anotacoes || "",
+                  updatedAt: new Date().toISOString(),
+                }, { merge: true });
+              } catch (uErr) {
+                console.warn("Aviso ao sincronizar venda local para Firestore:", uErr);
+              }
+            }
+          }
+
+          if (Object.keys(firestoreConfigs).length > 0) {
+            setConfigs((prev) => {
+              const merged = { ...firestoreConfigs, ...prev };
+              localStorage.setItem(configsKey, JSON.stringify(merged));
+              return merged;
+            });
+          }
+        } catch (err) {
+          console.warn("Erro ao carregar dados do Firestore:", err);
+        }
+      };
+
+      loadFromFirestore();
+    }
+  }, [profileId, user?.uid]);
+
+  // Persist dias locally and to Firestore
   const persistDias = useCallback(
-    (newDias: Record<string, DiaVenda>) => {
-      setDias(newDias);
+    async (newDias: Record<string, DiaVenda>, updatedData?: string) => {
+      diasRef.current = newDias;
       const { diasKey } = getStorageKeys(profileId);
       localStorage.setItem(diasKey, JSON.stringify(newDias));
+
+      // Save to Firebase Firestore if logged in
+      if (user?.uid && updatedData) {
+        try {
+          const diaDoc = doc(db, "users", user.uid, "vendas", updatedData);
+          const diaContent = newDias[updatedData];
+          if (diaContent) {
+            await setDoc(diaDoc, {
+              data: updatedData,
+              itens: diaContent.itens,
+              margem: diaContent.margem,
+              folga: Boolean(diaContent.folga),
+              atendimentosTotais: diaContent.atendimentosTotais || 0,
+              anotacoes: diaContent.anotacoes || "",
+              updatedAt: new Date().toISOString(),
+            });
+          } else {
+            await deleteDoc(diaDoc);
+          }
+        } catch (err) {
+          console.warn("Erro ao persistir venda no Firestore:", err);
+        }
+      }
+
       triggerAutoSync();
     },
-    [profileId]
+    [profileId, user?.uid]
   );
 
-  // Persist configs and trigger cloud sync debounced
+  // Persist configs locally and to Firestore
   const persistConfigs = useCallback(
-    (newConfigs: Record<string, ConfigMes>) => {
+    async (newConfigs: Record<string, ConfigMes>, updatedMesId?: string) => {
       setConfigs(newConfigs);
       const { configsKey } = getStorageKeys(profileId);
       localStorage.setItem(configsKey, JSON.stringify(newConfigs));
+
+      // Save to Firebase Firestore if logged in
+      if (user?.uid && updatedMesId) {
+        try {
+          const cfgDoc = doc(db, "users", user.uid, "configMes", updatedMesId);
+          await setDoc(cfgDoc, newConfigs[updatedMesId]);
+        } catch (err) {
+          console.warn("Erro ao persistir cota no Firestore:", err);
+        }
+      }
+
       triggerAutoSync();
     },
-    [profileId]
+    [profileId, user?.uid]
   );
 
   const sincronizarAgora = useCallback(async (): Promise<boolean> => {
     if (!syncCode) return false;
     setIsSyncing(true);
     try {
-      // 1. Gather all local data across all profiles
       const allProfilesPayload = perfis.map((p) => ({
         profileId: p.id,
         nome: p.nome,
@@ -119,6 +289,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         configJson: string;
       }> = [];
 
+      // Inclui todos os perfis armazenados
       for (const p of perfis) {
         const { diasKey, configsKey } = getStorageKeys(p.id);
         const storedD = localStorage.getItem(diasKey);
@@ -134,6 +305,8 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
                 itensJson: JSON.stringify({
                   itens: dia.itens || [],
                   folga: Boolean(dia.folga),
+                  atendimentosTotais: dia.atendimentosTotais || 0,
+                  anotacoes: dia.anotacoes || "",
                 }),
                 margem: String(dia.margem ?? "0"),
               });
@@ -155,24 +328,82 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // 2. Push local data to cloud
+      // Garante que o estado atual em memória também esteja presente
+      Object.entries(diasRef.current).forEach(([data, dia]) => {
+        const jaExiste = allDiasPayload.some((d) => d.profileId === profileId && d.data === data);
+        if (!jaExiste) {
+          allDiasPayload.push({
+            profileId,
+            data,
+            itensJson: JSON.stringify({
+              itens: dia.itens || [],
+              folga: Boolean(dia.folga),
+              atendimentosTotais: dia.atendimentosTotais || 0,
+              anotacoes: dia.anotacoes || "",
+            }),
+            margem: String(dia.margem ?? "0"),
+          });
+        }
+      });
+
+      // 1. Se estiver logado, garante salvamento em cada documento no Firestore do usuário
+      if (user?.uid) {
+        try {
+          for (const [dataKey, diaVal] of Object.entries(diasRef.current)) {
+            const diaDoc = doc(db, "users", user.uid, "vendas", dataKey);
+            await setDoc(
+              diaDoc,
+              {
+                data: dataKey,
+                itens: diaVal.itens || [],
+                margem: diaVal.margem || 0,
+                folga: Boolean(diaVal.folga),
+                atendimentosTotais: diaVal.atendimentosTotais || 0,
+                anotacoes: diaVal.anotacoes || "",
+                updatedAt: new Date().toISOString(),
+              },
+              { merge: true }
+            );
+          }
+
+          for (const [mesKey, cfgVal] of Object.entries(configs)) {
+            const cfgDoc = doc(db, "users", user.uid, "configMes", mesKey);
+            await setDoc(cfgDoc, cfgVal, { merge: true });
+          }
+
+          await setDoc(
+            doc(db, "users", user.uid),
+            { syncCode, lastSync: new Date().toISOString() },
+            { merge: true }
+          );
+        } catch (cloudErr) {
+          console.warn("Aviso ao salvar vendas no Firestore do usuário:", cloudErr);
+        }
+      }
+
+      // 2. Salva na nuvem persistente pelo código de sincronização
       await enviarDadosCloud(syncCode, {
         profiles: allProfilesPayload,
         dias: allDiasPayload,
         configs: allConfigsPayload,
+        rawDias: diasRef.current,
+        rawConfigs: configs,
       });
 
-      // 3. Pull latest data from cloud to merge
+      // 3. Puxa atualizações se houver
       const cloud = await puxarDadosCloud(syncCode);
       if (cloud) {
-        // Merge cloud dias for active profile
-        const cloudDiasForCurrent: Record<string, DiaVenda> = {};
-        if (Array.isArray(cloud.dias)) {
+        let cloudDiasForCurrent: Record<string, DiaVenda> = {};
+        if (cloud.rawDias && typeof cloud.rawDias === "object") {
+          cloudDiasForCurrent = cloud.rawDias;
+        } else if (Array.isArray(cloud.dias)) {
           cloud.dias.forEach((d: any) => {
             if (d.profileId === profileId) {
               try {
                 let parsedItens = [];
                 let parsedFolga = false;
+                let parsedAtend = 0;
+                let parsedAnot = "";
                 if (typeof d.itensJson === "string") {
                   const obj = JSON.parse(d.itensJson);
                   if (Array.isArray(obj)) {
@@ -180,6 +411,8 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
                   } else if (obj && typeof obj === "object") {
                     parsedItens = obj.itens || [];
                     parsedFolga = Boolean(obj.folga);
+                    parsedAtend = obj.atendimentosTotais || 0;
+                    parsedAnot = obj.anotacoes || "";
                   }
                 } else if (Array.isArray(d.itensJson)) {
                   parsedItens = d.itensJson;
@@ -189,20 +422,24 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
                   itens: parsedItens,
                   margem: parseFloat(d.margem) || 0,
                   folga: parsedFolga,
+                  atendimentosTotais: parsedAtend,
+                  anotacoes: parsedAnot,
                 };
               } catch {}
             }
           });
         }
 
-        const mergedDias = { ...dias, ...cloudDiasForCurrent };
+        const mergedDias = { ...diasRef.current, ...cloudDiasForCurrent };
         setDias(mergedDias);
+        diasRef.current = mergedDias;
         const { diasKey } = getStorageKeys(profileId);
         localStorage.setItem(diasKey, JSON.stringify(mergedDias));
 
-        // Merge cloud configs for active profile
-        const cloudConfigsForCurrent: Record<string, ConfigMes> = {};
-        if (Array.isArray(cloud.configs)) {
+        let cloudConfigsForCurrent: Record<string, ConfigMes> = {};
+        if (cloud.rawConfigs && typeof cloud.rawConfigs === "object") {
+          cloudConfigsForCurrent = cloud.rawConfigs;
+        } else if (Array.isArray(cloud.configs)) {
           cloud.configs.forEach((c: any) => {
             if (c.profileId === profileId) {
               try {
@@ -221,9 +458,21 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
 
       const now = new Date();
       setLastSync(now);
+
+      // Notificação de tranquilidade para a vendedora
+      window.dispatchEvent(
+        new CustomEvent("seralle-notification", {
+          detail: {
+            title: "Vendas Sincronizadas na Nuvem!",
+            body: `Seus lançamentos estão gravados com total segurança. Código de Restauração: ${syncCode}`,
+            type: "geral",
+          },
+        })
+      );
+
       return true;
     } catch (err) {
-      console.warn("Sync execution error", err);
+      console.warn("Erro durante sincronização:", err);
       return false;
     } finally {
       setIsSyncing(false);
@@ -232,55 +481,257 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     syncCode,
     perfis,
     profileId,
-    dias,
     configs,
     setIsSyncing,
     setLastSync,
     enviarDadosCloud,
     puxarDadosCloud,
+    user?.uid,
   ]);
+
+  const restaurarPorCodigo = useCallback(
+    async (codigo: string): Promise<{ success: boolean; message: string; totalDias: number }> => {
+      const formatted = (codigo || "").trim().toUpperCase();
+      if (!formatted) {
+        return {
+          success: false,
+          message: "Informe um código de sincronização válido.",
+          totalDias: 0,
+        };
+      }
+
+      setIsSyncing(true);
+      try {
+        const cloudData = await puxarDadosCloud(formatted);
+        if (!cloudData) {
+          return {
+            success: false,
+            message: `Nenhum dado encontrado para o código "${formatted}". Verifique se digitou corretamente.`,
+            totalDias: 0,
+          };
+        }
+
+        let diasToMerge: Record<string, DiaVenda> = {};
+        let configsToMerge: Record<string, ConfigMes> = {};
+
+        if (cloudData.rawDias && typeof cloudData.rawDias === "object") {
+          diasToMerge = cloudData.rawDias;
+        } else if (Array.isArray(cloudData.dias)) {
+          cloudData.dias.forEach((d: any) => {
+            try {
+              let parsedItens = [];
+              let parsedFolga = false;
+              let parsedAtend = 0;
+              let parsedAnot = "";
+              if (typeof d.itensJson === "string") {
+                const obj = JSON.parse(d.itensJson);
+                if (Array.isArray(obj)) {
+                  parsedItens = obj;
+                } else if (obj && typeof obj === "object") {
+                  parsedItens = obj.itens || [];
+                  parsedFolga = Boolean(obj.folga);
+                  parsedAtend = obj.atendimentosTotais || 0;
+                  parsedAnot = obj.anotacoes || "";
+                }
+              } else if (Array.isArray(d.itensJson)) {
+                parsedItens = d.itensJson;
+              }
+
+              diasToMerge[d.data] = {
+                itens: parsedItens,
+                margem: parseFloat(d.margem) || 0,
+                folga: parsedFolga,
+                atendimentosTotais: parsedAtend,
+                anotacoes: parsedAnot,
+              };
+            } catch {}
+          });
+        }
+
+        if (cloudData.rawConfigs && typeof cloudData.rawConfigs === "object") {
+          configsToMerge = cloudData.rawConfigs;
+        } else if (Array.isArray(cloudData.configs)) {
+          cloudData.configs.forEach((c: any) => {
+            try {
+              configsToMerge[c.mesId] =
+                typeof c.configJson === "string" ? JSON.parse(c.configJson) : c.configJson;
+            } catch {}
+          });
+        }
+
+        const totalDias = Object.keys(diasToMerge).length;
+        if (totalDias === 0 && Object.keys(configsToMerge).length === 0) {
+          return {
+            success: false,
+            message: `O código "${formatted}" existe na nuvem, mas ainda não possui vendas cadastradas.`,
+            totalDias: 0,
+          };
+        }
+
+        // Fusão com dias em memória
+        const mergedDias = { ...diasRef.current, ...diasToMerge };
+        const mergedConfigs = { ...configs, ...configsToMerge };
+
+        setDias(mergedDias);
+        diasRef.current = mergedDias;
+        setConfigs(mergedConfigs);
+
+        // Salva nas chaves do perfil atual
+        const { diasKey, configsKey } = getStorageKeys(profileId);
+        localStorage.setItem(diasKey, JSON.stringify(mergedDias));
+        localStorage.setItem(configsKey, JSON.stringify(mergedConfigs));
+
+        // Se logado no Firebase, grava no banco de dados do usuário
+        if (user?.uid) {
+          try {
+            for (const [dataKey, diaVal] of Object.entries(mergedDias)) {
+              const diaDoc = doc(db, "users", user.uid, "vendas", dataKey);
+              await setDoc(
+                diaDoc,
+                {
+                  data: dataKey,
+                  itens: diaVal.itens,
+                  margem: diaVal.margem,
+                  folga: Boolean(diaVal.folga),
+                  atendimentosTotais: diaVal.atendimentosTotais || 0,
+                  anotacoes: diaVal.anotacoes || "",
+                  updatedAt: new Date().toISOString(),
+                },
+                { merge: true }
+              );
+            }
+
+            for (const [mesKey, cfgVal] of Object.entries(mergedConfigs)) {
+              const cfgDoc = doc(db, "users", user.uid, "configMes", mesKey);
+              await setDoc(cfgDoc, cfgVal, { merge: true });
+            }
+          } catch (uErr) {
+            console.warn("Aviso ao persistir dados restaurados no Firestore:", uErr);
+          }
+        }
+
+        setLastSync(new Date());
+        return {
+          success: true,
+          message: `Restauração realizada com sucesso! ${totalDias} dias de lançamentos recuperados.`,
+          totalDias,
+        };
+      } catch (err: any) {
+        console.error("Erro ao restaurar por código:", err);
+        return {
+          success: false,
+          message: `Falha ao restaurar dados: ${err.message || "Erro desconhecido"}`,
+          totalDias: 0,
+        };
+      } finally {
+        setIsSyncing(false);
+      }
+    },
+    [puxarDadosCloud, configs, profileId, user?.uid, setIsSyncing, setLastSync]
+  );
 
   const triggerAutoSync = useCallback(() => {
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
     syncTimeoutRef.current = setTimeout(() => {
       sincronizarAgora();
-    }, 2000);
+    }, 2500);
   }, [sincronizarAgora]);
 
   const adicionarItem = useCallback(
     async (data: string, item: Omit<VendaItem, "id" | "hora">) => {
       const novoItem: VendaItem = {
-        id: "v_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
-        valor: item.valor,
-        pares: item.pares,
-        descricao: item.descricao,
+        id: "v_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+        valor: Number(item.valor) || 0,
+        pares: Number(item.pares) || 1,
+        produtosAgregados: Number(item.produtosAgregados) || 0,
+        descricao: item.descricao || "",
         categoria: item.categoria || "Geral",
         hora: new Date().toISOString(),
       };
 
-      const diaAtual = dias[data] || { itens: [], margem: 0, folga: false };
-      const novosItens = [...diaAtual.itens, novoItem];
+      const currentDias = diasRef.current;
+      const diaAtual = currentDias[data] || { itens: [], margem: 0, folga: false };
+      const novosItens = [...(diaAtual.itens || []), novoItem];
 
       const newDias = {
-        ...dias,
+        ...currentDias,
         [data]: {
           ...diaAtual,
           itens: novosItens,
         },
       };
-      persistDias(newDias);
+
+      setDias(newDias);
+      await persistDias(newDias, data);
     },
-    [dias, persistDias]
+    [persistDias]
+  );
+
+  const editarItem = useCallback(
+    async (
+      data: string,
+      itemId: string,
+      itemUpdates: Partial<Omit<VendaItem, "id">>
+    ) => {
+      const currentDias = diasRef.current;
+      const diaAtual = currentDias[data];
+      if (!diaAtual || !diaAtual.itens) return;
+
+      const novosItens = diaAtual.itens.map((it) => {
+        if (it.id !== itemId) return it;
+        return {
+          ...it,
+          valor: itemUpdates.valor !== undefined ? Number(itemUpdates.valor) : it.valor,
+          pares: itemUpdates.pares !== undefined ? Number(itemUpdates.pares) : it.pares,
+          produtosAgregados: itemUpdates.produtosAgregados !== undefined ? Number(itemUpdates.produtosAgregados) : it.produtosAgregados,
+          descricao: itemUpdates.descricao !== undefined ? itemUpdates.descricao : it.descricao,
+          categoria: itemUpdates.categoria !== undefined ? itemUpdates.categoria : it.categoria,
+        };
+      });
+
+      const newDias = {
+        ...currentDias,
+        [data]: {
+          ...diaAtual,
+          itens: novosItens,
+        },
+      };
+
+      setDias(newDias);
+      await persistDias(newDias, data);
+    },
+    [persistDias]
+  );
+
+  const restaurarItem = useCallback(
+    async (data: string, item: VendaItem) => {
+      const currentDias = diasRef.current;
+      const diaAtual = currentDias[data] || { itens: [], margem: 0, folga: false };
+      const novosItens = [...(diaAtual.itens || []), item];
+
+      const newDias = {
+        ...currentDias,
+        [data]: {
+          ...diaAtual,
+          itens: novosItens,
+        },
+      };
+
+      setDias(newDias);
+      await persistDias(newDias, data);
+    },
+    [persistDias]
   );
 
   const removerItem = useCallback(
     async (data: string, itemId: string) => {
-      const diaAtual = dias[data];
+      const currentDias = diasRef.current;
+      const diaAtual = currentDias[data];
       if (!diaAtual) return;
 
-      const novosItens = diaAtual.itens.filter((i) => i.id !== itemId);
-      const newDias = { ...dias };
-      if (novosItens.length === 0 && diaAtual.margem === 0 && !diaAtual.folga) {
+      const novosItens = (diaAtual.itens || []).filter((i) => i.id !== itemId);
+      const newDias = { ...currentDias };
+      if (novosItens.length === 0 && diaAtual.margem === 0 && !diaAtual.folga && !diaAtual.anotacoes && !diaAtual.atendimentosTotais) {
         delete newDias[data];
       } else {
         newDias[data] = {
@@ -288,49 +739,90 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           itens: novosItens,
         };
       }
-      persistDias(newDias);
+      setDias(newDias);
+      await persistDias(newDias, data);
     },
-    [dias, persistDias]
+    [persistDias]
   );
 
   const salvarMargemDia = useCallback(
     async (data: string, margem: number) => {
-      const diaAtual = dias[data] || { itens: [], margem: 0, folga: false };
+      const currentDias = diasRef.current;
+      const diaAtual = currentDias[data] || { itens: [], margem: 0, folga: false };
       const newDias = {
-        ...dias,
+        ...currentDias,
         [data]: {
           ...diaAtual,
           margem,
         },
       };
-      persistDias(newDias);
+      setDias(newDias);
+      await persistDias(newDias, data);
     },
-    [dias, persistDias]
+    [persistDias]
+  );
+
+  const salvarAtendimentosDia = useCallback(
+    async (data: string, atendimentos: number) => {
+      const currentDias = diasRef.current;
+      const diaAtual = currentDias[data] || { itens: [], margem: 0, folga: false };
+      const newDias = {
+        ...currentDias,
+        [data]: {
+          ...diaAtual,
+          atendimentosTotais: Math.max(0, atendimentos),
+        },
+      };
+      setDias(newDias);
+      await persistDias(newDias, data);
+    },
+    [persistDias]
+  );
+
+  const salvarAnotacoesDia = useCallback(
+    async (data: string, anotacoes: string) => {
+      const currentDias = diasRef.current;
+      const diaAtual = currentDias[data] || { itens: [], margem: 0, folga: false };
+      const newDias = {
+        ...currentDias,
+        [data]: {
+          ...diaAtual,
+          anotacoes,
+        },
+      };
+      setDias(newDias);
+      await persistDias(newDias, data);
+    },
+    [persistDias]
   );
 
   const alternarFolgaDia = useCallback(
     async (data: string) => {
-      const diaAtual = dias[data] || { itens: [], margem: 0, folga: false };
+      const currentDias = diasRef.current;
+      const diaAtual = currentDias[data] || { itens: [], margem: 0, folga: false };
       const newFolga = !diaAtual.folga;
       const newDias = {
-        ...dias,
+        ...currentDias,
         [data]: {
           ...diaAtual,
           folga: newFolga,
         },
       };
-      persistDias(newDias);
+      setDias(newDias);
+      await persistDias(newDias, data);
     },
-    [dias, persistDias]
+    [persistDias]
   );
 
   const removerDia = useCallback(
     async (data: string) => {
-      const newDias = { ...dias };
+      const currentDias = diasRef.current;
+      const newDias = { ...currentDias };
       delete newDias[data];
-      persistDias(newDias);
+      setDias(newDias);
+      await persistDias(newDias, data);
     },
-    [dias, persistDias]
+    [persistDias]
   );
 
   const salvarConfigMes = useCallback(
@@ -339,7 +831,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         ...configs,
         [mesId]: config,
       };
-      persistConfigs(newConfigs);
+      await persistConfigs(newConfigs, mesId);
     },
     [configs, persistConfigs]
   );
@@ -362,11 +854,38 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     (data: string): TotaisDia => {
       const dia = dias[data];
       if (!dia || !dia.itens.length) {
-        return { valor: 0, pares: 0, qtd: 0 };
+        return {
+          valor: 0,
+          pares: 0,
+          qtd: 0,
+          produtosAgregados: 0,
+          atendimentosTotais: dia?.atendimentosTotais || 0,
+          pa: 0,
+          taxaConversao: 0,
+        };
       }
       const valor = dia.itens.reduce((acc, item) => acc + item.valor, 0);
       const pares = dia.itens.reduce((acc, item) => acc + item.pares, 0);
-      return { valor, pares, qtd: dia.itens.length };
+      const agregados = dia.itens.reduce(
+        (acc, item) => acc + (item.produtosAgregados || 0),
+        0
+      );
+      const qtdVendas = dia.itens.length;
+      const totalPecas = pares + agregados;
+      const pa = qtdVendas > 0 ? totalPecas / qtdVendas : 0;
+      const atendimentos = dia.atendimentosTotais || qtdVendas;
+      const taxaConversao =
+        atendimentos > 0 ? Math.min(100, (qtdVendas / atendimentos) * 100) : 100;
+
+      return {
+        valor,
+        pares,
+        qtd: qtdVendas,
+        produtosAgregados: agregados,
+        atendimentosTotais: atendimentos,
+        pa,
+        taxaConversao,
+      };
     },
     [dias]
   );
@@ -375,6 +894,8 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     (mesId: string): TotaisMes => {
       let totalValor = 0;
       let totalPares = 0;
+      let totalAgregados = 0;
+      let totalAtendimentos = 0;
       let totalMargemPonderada = 0;
       let somaPesosValor = 0;
       let diasComVenda = 0;
@@ -384,12 +905,18 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         if (data.startsWith(mesId)) {
           const diaValor = dia.itens.reduce((sum, i) => sum + i.valor, 0);
           const diaPares = dia.itens.reduce((sum, i) => sum + i.pares, 0);
+          const diaAgregados = dia.itens.reduce(
+            (sum, i) => sum + (i.produtosAgregados || 0),
+            0
+          );
 
           if (dia.itens.length > 0 || diaValor > 0) {
             totalValor += diaValor;
             totalPares += diaPares;
+            totalAgregados += diaAgregados;
             diasComVenda++;
             qtdVendas += dia.itens.length;
+            totalAtendimentos += dia.atendimentosTotais || dia.itens.length;
 
             if (dia.margem > 0 && diaValor > 0) {
               totalMargemPonderada += dia.margem * diaValor;
@@ -399,7 +926,14 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         }
       });
 
-      const margemMedia = somaPesosValor > 0 ? totalMargemPonderada / somaPesosValor : 0;
+      const margemMedia =
+        somaPesosValor > 0 ? totalMargemPonderada / somaPesosValor : 0;
+      const totalPecas = totalPares + totalAgregados;
+      const paMedio = qtdVendas > 0 ? totalPecas / qtdVendas : 0;
+      const taxaConversao =
+        totalAtendimentos > 0
+          ? Math.min(100, (qtdVendas / totalAtendimentos) * 100)
+          : 100;
 
       return {
         valor: totalValor,
@@ -407,12 +941,15 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         margem: margemMedia,
         dias: diasComVenda,
         qtdVendas,
+        produtosAgregados: totalAgregados,
+        atendimentosTotais: totalAtendimentos,
+        paMedio,
+        taxaConversao,
       };
     },
     [dias]
   );
 
-  // Helper for Store view to aggregate all sellers
   const getDadosTodasVendedoras = useCallback(
     (mesId: string) => {
       return perfis.map((p) => {
@@ -429,6 +966,8 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
 
         let totalValor = 0;
         let totalPares = 0;
+        let totalAgregados = 0;
+        let totalAtendimentos = 0;
         let totalMargemPonderada = 0;
         let somaPesosValor = 0;
         let diasComVenda = 0;
@@ -438,12 +977,18 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           if (data.startsWith(mesId)) {
             const diaValor = (dia.itens || []).reduce((sum, i) => sum + i.valor, 0);
             const diaPares = (dia.itens || []).reduce((sum, i) => sum + i.pares, 0);
+            const diaAgregados = (dia.itens || []).reduce(
+              (sum, i) => sum + (i.produtosAgregados || 0),
+              0
+            );
 
             if (dia.itens?.length > 0 || diaValor > 0) {
               totalValor += diaValor;
               totalPares += diaPares;
+              totalAgregados += diaAgregados;
               diasComVenda++;
               qtdVendas += (dia.itens || []).length;
+              totalAtendimentos += dia.atendimentosTotais || (dia.itens || []).length;
 
               if (dia.margem > 0 && diaValor > 0) {
                 totalMargemPonderada += dia.margem * diaValor;
@@ -453,7 +998,14 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           }
         });
 
-        const margemMedia = somaPesosValor > 0 ? totalMargemPonderada / somaPesosValor : 0;
+        const margemMedia =
+          somaPesosValor > 0 ? totalMargemPonderada / somaPesosValor : 0;
+        const totalPecas = totalPares + totalAgregados;
+        const paMedio = qtdVendas > 0 ? totalPecas / qtdVendas : 0;
+        const taxaConversao =
+          totalAtendimentos > 0
+            ? Math.min(100, (qtdVendas / totalAtendimentos) * 100)
+            : 100;
 
         return {
           perfilId: p.id,
@@ -464,6 +1016,10 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
             margem: margemMedia,
             dias: diasComVenda,
             qtdVendas,
+            produtosAgregados: totalAgregados,
+            atendimentosTotais: totalAtendimentos,
+            paMedio,
+            taxaConversao,
           },
           diasMap: pDias,
         };
@@ -472,14 +1028,135 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     [perfis, profileId, dias]
   );
 
+  // ─── Exportar Backup Completo ────────────────────────────────────────────────
+  const exportarBackup = useCallback((): string => {
+    const backupData = {
+      app: "vendas-seralle",
+      versao: "1.1.0",
+      dataCriacao: new Date().toISOString(),
+      profileId,
+      perfilNome: perfilAtivo?.nome || "Vendedora",
+      perfis,
+      dias: diasRef.current,
+      configs,
+    };
+    return JSON.stringify(backupData, null, 2);
+  }, [profileId, perfilAtivo, perfis, configs]);
+
+  // ─── Importar & Restaurar Backup ──────────────────────────────────────────────
+  const importarBackup = useCallback(
+    async (jsonContent: string): Promise<{ success: boolean; message: string; totalDias: number }> => {
+      try {
+        const parsed = JSON.parse(jsonContent);
+
+        // Validação básica do arquivo de backup
+        if (!parsed || typeof parsed !== "object" || (!parsed.dias && !parsed.configs)) {
+          return {
+            success: false,
+            message: "Arquivo de backup inválido ou corrompido.",
+            totalDias: 0,
+          };
+        }
+
+        const backupDias: Record<string, DiaVenda> = parsed.dias || {};
+        const backupConfigs: Record<string, ConfigMes> = parsed.configs || {};
+
+        // Mesclar de forma segura com o estado atual
+        const mergedDias: Record<string, DiaVenda> = { ...diasRef.current };
+        Object.entries(backupDias).forEach(([dataKey, bDia]) => {
+          const existing = mergedDias[dataKey];
+          if (!existing) {
+            mergedDias[dataKey] = bDia;
+          } else {
+            // Unir itens mantendo integridade
+            const itemMap = new Map<string, VendaItem>();
+            (bDia.itens || []).forEach((it) => it.id && itemMap.set(it.id, it));
+            (existing.itens || []).forEach((it) => it.id && itemMap.set(it.id, it));
+
+            mergedDias[dataKey] = {
+              ...existing,
+              itens: Array.from(itemMap.values()),
+              margem: existing.margem > 0 ? existing.margem : bDia.margem,
+              folga: existing.folga || bDia.folga,
+              atendimentosTotais: Math.max(existing.atendimentosTotais || 0, bDia.atendimentosTotais || 0),
+              anotacoes: existing.anotacoes || bDia.anotacoes || "",
+            };
+          }
+        });
+
+        const mergedConfigs: Record<string, ConfigMes> = {
+          ...backupConfigs,
+          ...configs,
+        };
+
+        // Salvar localmente
+        const { diasKey, configsKey } = getStorageKeys(profileId);
+        localStorage.setItem(diasKey, JSON.stringify(mergedDias));
+        localStorage.setItem(configsKey, JSON.stringify(mergedConfigs));
+
+        setDias(mergedDias);
+        diasRef.current = mergedDias;
+        setConfigs(mergedConfigs);
+
+        // Se logado no Firebase, sobe os dados restaurados para a nuvem
+        if (user?.uid) {
+          try {
+            for (const [dataKey, diaVal] of Object.entries(mergedDias)) {
+              const diaDoc = doc(db, "users", user.uid, "vendas", dataKey);
+              await setDoc(
+                diaDoc,
+                {
+                  data: dataKey,
+                  itens: diaVal.itens,
+                  margem: diaVal.margem,
+                  folga: Boolean(diaVal.folga),
+                  atendimentosTotais: diaVal.atendimentosTotais || 0,
+                  anotacoes: diaVal.anotacoes || "",
+                  updatedAt: new Date().toISOString(),
+                },
+                { merge: true }
+              );
+            }
+
+            for (const [mesKey, cfgVal] of Object.entries(mergedConfigs)) {
+              const cfgDoc = doc(db, "users", user.uid, "configMes", mesKey);
+              await setDoc(cfgDoc, cfgVal, { merge: true });
+            }
+          } catch (cloudErr) {
+            console.warn("Aviso ao enviar backup restaurado para nuvem:", cloudErr);
+          }
+        }
+
+        const totalDiasImportados = Object.keys(mergedDias).length;
+        return {
+          success: true,
+          message: `Backup restaurado com sucesso! ${totalDiasImportados} dias de lançamentos carregados.`,
+          totalDias: totalDiasImportados,
+        };
+      } catch (err: any) {
+        console.error("Erro na restauração do backup:", err);
+        return {
+          success: false,
+          message: `Erro ao processar arquivo: ${err.message || "Formato JSON inválido."}`,
+          totalDias: 0,
+        };
+      }
+    },
+    [profileId, user?.uid, configs]
+  );
+
   return (
     <VendasContext.Provider
       value={{
         dias,
         configs,
         adicionarItem,
+        editarItem,
+        restaurarItem,
         removerItem,
         salvarMargemDia,
+        salvarAtendimentosDia,
+        salvarAnotacoesDia,
         alternarFolgaDia,
         removerDia,
         salvarConfigMes,
@@ -488,6 +1165,9 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         getDia,
         getDiaTotais,
         sincronizarAgora,
+        restaurarPorCodigo,
+        exportarBackup,
+        importarBackup,
         getDadosTodasVendedoras,
       }}
     >

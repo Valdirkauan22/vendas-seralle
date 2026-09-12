@@ -17,12 +17,18 @@
       "supportsTablet": false
     },
     "android": {
-      "package": "com.seralle.diariovendas",
-      "versionCode": 1,
+      "package": "com.seralle.vendas",
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#1A6BB5"
-      }
+        "backgroundColor": "#0082D7"
+      },
+      "permissions": [
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "SCHEDULE_EXACT_ALARM"
+      ]
     },
     "web": {
       "favicon": "./assets/images/favicon.png",

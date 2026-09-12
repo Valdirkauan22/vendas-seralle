@@ -1,6 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ProfileProvider } from "@/context/ProfileContext";
-import { VendasProvider } from "@/context/VendasContext";
+import { VendasProvider, useVendas } from "@/context/VendasContext";
+import { AuthScreen } from "@/components/AuthScreen";
 import { Header } from "@/components/Header";
 import { MonthSelector } from "@/components/MonthSelector";
 import { ResumoView } from "@/components/ResumoView";
@@ -13,10 +15,22 @@ import { MetasModal } from "@/components/MetasModal";
 import { PerfisModal } from "@/components/PerfisModal";
 import { RelatorioModal } from "@/components/RelatorioModal";
 import { GuiaModal } from "@/components/GuiaModal";
+import { InstalarMobileModal } from "@/components/InstalarMobileModal";
+import { LembretesModal } from "@/components/LembretesModal";
+import { BackupModal } from "@/components/BackupModal";
+import { InAppNotificationToast } from "@/components/InAppNotificationToast";
+import { BottomNav } from "@/components/BottomNav";
 import { ViewMode } from "@/types";
-import { getMesAtualId } from "@/utils/formatters";
+import { getMesAtualId, getDataHoje } from "@/utils/formatters";
+import {
+  getLembretesConfig,
+  sendNativeNotification,
+  hasNotificationFiredToday,
+  markNotificationFiredToday,
+} from "@/utils/notifications";
 
 function MainApp() {
+  const { getDiaTotais } = useVendas();
   const [viewMode, setViewMode] = useState<ViewMode>("dashboard");
   const [currentMonthId, setCurrentMonthId] = useState<string>(getMesAtualId());
 
@@ -26,21 +40,80 @@ function MainApp() {
   const [relatorioModalOpen, setRelatorioModalOpen] = useState(false);
   const [perfisModalOpen, setPerfisModalOpen] = useState(false);
   const [guiaModalOpen, setGuiaModalOpen] = useState(false);
+  const [instalarMobileModalOpen, setInstalarMobileModalOpen] = useState(false);
+  const [lembretesModalOpen, setLembretesModalOpen] = useState(false);
+  const [backupModalOpen, setBackupModalOpen] = useState(false);
+
+  // Verificação periódica de lembretes e alertas de turno
+  useEffect(() => {
+    const checkLembretes = () => {
+      const cfg = getLembretesConfig();
+      if (!cfg.habilitado) return;
+
+      const now = new Date();
+      const horaMinutoAtual = `${String(now.getHours()).padStart(2, "0")}:${String(
+        now.getMinutes()
+      ).padStart(2, "0")}`;
+
+      // 1. Fechamento de Turno
+      if (cfg.fechamentoTurnoAtivo && horaMinutoAtual === cfg.horarioFechamento) {
+        if (!hasNotificationFiredToday("fechamento")) {
+          const hojeStr = getDataHoje();
+          const diaHoje = getDiaTotais(hojeStr);
+          markNotificationFiredToday("fechamento");
+          sendNativeNotification("⏰ Diário Serallê · Fim de Expediente", {
+            body:
+              diaHoje.qtd === 0
+                ? "Seu turno está quase no fim! Não esqueça de registrar os atendimentos e vendas de hoje."
+                : `Turno concluído! Você registrou ${diaHoje.pares} pares hoje. Parabéns pelo empenho!`,
+            type: "fechamento",
+          });
+        }
+      }
+
+      // 2. Aviso de Ritmo de Vendas
+      if (cfg.avisoRitmoAtivo && horaMinutoAtual === cfg.horarioAvisoRitmo) {
+        if (!hasNotificationFiredToday("ritmo")) {
+          const hojeStr = getDataHoje();
+          const diaHoje = getDiaTotais(hojeStr);
+          markNotificationFiredToday("ritmo");
+          sendNativeNotification("⚡ Diário Serallê · Aviso de Ritmo", {
+            body: `Metade do turno! Hoje você já realizou ${diaHoje.pares} pares. Continue acelerando para bater sua cota!`,
+            type: "ritmo",
+          });
+        }
+      }
+    };
+
+    const timer = setInterval(checkLembretes, 30000);
+    return () => clearInterval(timer);
+  }, [getDiaTotais]);
+
+  const handleLancarVendaHoje = () => {
+    setSelectedDiaDate(getDataHoje());
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-blue-100 selection:text-blue-900">
+      {/* Floating In-App Reminder Notification */}
+      <InAppNotificationToast onOpenLancarVenda={handleLancarVendaHoje} />
+
       {/* Top Application Header */}
       <Header
         viewMode={viewMode}
         setViewMode={setViewMode}
+        onOpenLancarVenda={handleLancarVendaHoje}
         onOpenMetas={() => setMetasModalOpen(true)}
         onOpenRelatorio={() => setRelatorioModalOpen(true)}
         onOpenPerfis={() => setPerfisModalOpen(true)}
         onOpenGuia={() => setGuiaModalOpen(true)}
+        onOpenInstalarMobile={() => setInstalarMobileModalOpen(true)}
+        onOpenLembretes={() => setLembretesModalOpen(true)}
+        onOpenBackup={() => setBackupModalOpen(true)}
       />
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-8 pb-28 md:pb-8">
         {/* Month selector displayed for active month views */}
         {viewMode !== "historico-metas" && (
           <MonthSelector
@@ -55,6 +128,7 @@ function MainApp() {
             mesId={currentMonthId}
             onOpenDia={(dataStr) => setSelectedDiaDate(dataStr)}
             onOpenMetas={() => setMetasModalOpen(true)}
+            onOpenLembretes={() => setLembretesModalOpen(true)}
           />
         )}
 
@@ -96,21 +170,40 @@ function MainApp() {
           </p>
           <div className="flex items-center gap-4">
             <button
+              onClick={() => setInstalarMobileModalOpen(true)}
+              className="text-emerald-700 hover:underline font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <span>📱 Testar no Celular (QR Code)</span>
+            </button>
+            <span>·</span>
+            <button
               onClick={() => setGuiaModalOpen(true)}
-              className="text-blue-700 hover:underline font-medium"
+              className="text-blue-700 hover:underline font-medium cursor-pointer"
             >
               Guia de Uso
             </button>
             <span>·</span>
             <button
               onClick={() => setPerfisModalOpen(true)}
-              className="text-blue-700 hover:underline font-medium"
+              className="text-blue-700 hover:underline font-medium cursor-pointer"
             >
               Nuvem & Perfis
             </button>
           </div>
         </div>
       </footer>
+
+      {/* Mobile Fixed Bottom Navigation */}
+      <BottomNav
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        onOpenLancarVenda={handleLancarVendaHoje}
+        onOpenMetas={() => setMetasModalOpen(true)}
+        onOpenRelatorio={() => setRelatorioModalOpen(true)}
+        onOpenPerfis={() => setPerfisModalOpen(true)}
+        onOpenLembretes={() => setLembretesModalOpen(true)}
+        onOpenBackup={() => setBackupModalOpen(true)}
+      />
 
       {/* Modals */}
       {selectedDiaDate && (
@@ -137,6 +230,7 @@ function MainApp() {
       {perfisModalOpen && (
         <PerfisModal
           onClose={() => setPerfisModalOpen(false)}
+          onOpenBackup={() => setBackupModalOpen(true)}
         />
       )}
 
@@ -145,16 +239,64 @@ function MainApp() {
           onClose={() => setGuiaModalOpen(false)}
         />
       )}
+
+      {instalarMobileModalOpen && (
+        <InstalarMobileModal
+          onClose={() => setInstalarMobileModalOpen(false)}
+        />
+      )}
+
+      {lembretesModalOpen && (
+        <LembretesModal
+          onClose={() => setLembretesModalOpen(false)}
+          onOpenLancarVenda={handleLancarVendaHoje}
+        />
+      )}
+
+      {backupModalOpen && (
+        <BackupModal
+          onClose={() => setBackupModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
 
+function AppContent() {
+  const { user, userProfile, isModoOffline, loading } = useAuth();
+  const [mobileModalOpen, setMobileModalOpen] = useState(false);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white">
+        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-sm font-bold text-slate-200">Carregando Diário Serallê...</p>
+      </div>
+    );
+  }
+
+  if (!user && !isModoOffline && !userProfile) {
+    return (
+      <>
+        <AuthScreen onOpenMobileGuide={() => setMobileModalOpen(true)} />
+        {mobileModalOpen && (
+          <InstalarMobileModal onClose={() => setMobileModalOpen(false)} />
+        )}
+      </>
+    );
+  }
+
+  return <MainApp />;
+}
+
 export default function App() {
   return (
-    <ProfileProvider>
-      <VendasProvider>
-        <MainApp />
-      </VendasProvider>
-    </ProfileProvider>
+    <AuthProvider>
+      <ProfileProvider>
+        <VendasProvider>
+          <AppContent />
+        </VendasProvider>
+      </ProfileProvider>
+    </AuthProvider>
   );
 }

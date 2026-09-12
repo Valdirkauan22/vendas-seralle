@@ -1,6 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  ShoppingBag,
   Users,
   Target,
   FileText,
@@ -13,56 +12,89 @@ import {
   Check,
   PieChart as PieIcon,
   Store,
+  Smartphone,
+  QrCode,
+  LogOut,
+  ShieldCheck,
+  PlusCircle,
+  Wifi,
+  WifiOff,
+  Cloud,
+  Bell,
+  HardDrive,
 } from "lucide-react";
+import { LogoSeralle } from "@/components/LogoSeralle";
 import { useProfile } from "@/context/ProfileContext";
 import { useVendas } from "@/context/VendasContext";
+import { useAuth } from "@/context/AuthContext";
 import { getAvatarColor, getIniciais } from "@/utils/formatters";
 import { ViewMode } from "@/types";
 
 interface HeaderProps {
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
+  onOpenLancarVenda: () => void;
   onOpenMetas: () => void;
   onOpenRelatorio: () => void;
   onOpenPerfis: () => void;
   onOpenGuia: () => void;
+  onOpenInstalarMobile: () => void;
+  onOpenLembretes?: () => void;
+  onOpenBackup?: () => void;
 }
 
 export function Header({
   viewMode,
   setViewMode,
+  onOpenLancarVenda,
   onOpenMetas,
   onOpenRelatorio,
   onOpenPerfis,
   onOpenGuia,
+  onOpenInstalarMobile,
+  onOpenLembretes,
+  onOpenBackup,
 }: HeaderProps) {
+  const { user, userProfile, sair } = useAuth();
   const { perfis, perfilAtivo, selecionarPerfil, isSyncing, lastSync, syncCode } = useProfile();
   const { sincronizarAgora } = useVendas();
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== "undefined" ? navigator.onLine : true
+  );
 
-  const corAvatar = perfilAtivo ? getAvatarColor(perfilAtivo.id) : "#1A6BB5";
-  const iniciais = perfilAtivo ? getIniciais(perfilAtivo.nome) : "V";
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  const nomeExibicao = userProfile?.displayName || user?.displayName || perfilAtivo?.nome || "Vendedora";
+  const corAvatar = perfilAtivo ? getAvatarColor(perfilAtivo.id) : "#0082D7";
+  const iniciais = getIniciais(nomeExibicao);
 
   return (
-    <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+    <header
+      className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs pt-9 md:pt-0 app-header-safe"
+    >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20">
-          {/* Logo & Branding */}
-          <div className="flex items-center gap-3 sm:gap-4">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-blue-700 to-blue-900 flex items-center justify-center text-white shadow-md shadow-blue-900/10">
-              <ShoppingBag className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-lg sm:text-xl tracking-tight text-slate-900">
-                  SERALLÊ
-                </span>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 uppercase tracking-wider">
-                  Calçados
-                </span>
-              </div>
-              <p className="text-xs font-medium text-slate-500">
-                Diário de Vendas & Metas
+          {/* Official Serallê Logo & Subtitle */}
+          <div className="flex items-center gap-3">
+            <LogoSeralle size="sm" />
+            <div className="hidden xl:block pl-3 border-l border-slate-200 text-left">
+              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider leading-tight">
+                Diário Oficial
+              </p>
+              <p className="text-xs font-semibold text-[#0082D7] leading-tight">
+                Vendas & Metas
               </p>
             </div>
           </div>
@@ -73,7 +105,7 @@ export function Header({
               onClick={() => setViewMode("dashboard")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 viewMode === "dashboard"
-                  ? "bg-white text-blue-700 shadow-xs border border-slate-200/80"
+                  ? "bg-white text-[#0082D7] shadow-xs border border-slate-200/80"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
               }`}
             >
@@ -85,7 +117,7 @@ export function Header({
               onClick={() => setViewMode("calendario")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 viewMode === "calendario"
-                  ? "bg-white text-blue-700 shadow-xs border border-slate-200/80"
+                  ? "bg-white text-[#0082D7] shadow-xs border border-slate-200/80"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
               }`}
             >
@@ -97,7 +129,7 @@ export function Header({
               onClick={() => setViewMode("analises")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 viewMode === "analises"
-                  ? "bg-white text-blue-700 shadow-xs border border-slate-200/80"
+                  ? "bg-white text-[#0082D7] shadow-xs border border-slate-200/80"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
               }`}
             >
@@ -109,7 +141,7 @@ export function Header({
               onClick={() => setViewMode("loja")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 viewMode === "loja"
-                  ? "bg-white text-blue-700 shadow-xs border border-slate-200/80"
+                  ? "bg-white text-[#0082D7] shadow-xs border border-slate-200/80"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
               }`}
             >
@@ -121,7 +153,7 @@ export function Header({
               onClick={() => setViewMode("historico-metas")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 viewMode === "historico-metas"
-                  ? "bg-white text-blue-700 shadow-xs border border-slate-200/80"
+                  ? "bg-white text-[#0082D7] shadow-xs border border-slate-200/80"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
               }`}
             >
@@ -131,58 +163,143 @@ export function Header({
           </nav>
 
           {/* Right Action Tools & Profile */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Quick Sync Button */}
+          <div className="flex items-center gap-1.5 sm:gap-3">
+            {/* Direct Quick Sale Button (Desktop only - on mobile it sits prominently in BottomNav) */}
+            <button
+              onClick={onOpenLancarVenda}
+              className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 active:bg-blue-900 text-white text-xs font-extrabold shadow-md shadow-blue-700/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+              title="Lançar Nova Venda de Hoje"
+            >
+              <PlusCircle className="w-4 h-4 text-white" />
+              <span>Lançar Venda</span>
+            </button>
+
+            {/* Quick Sync & Online/Offline Status Indicator */}
             <button
               onClick={() => sincronizarAgora()}
               disabled={isSyncing}
-              title={`Sincronização em Nuvem (Código: ${syncCode || "—"})`}
-              className="p-2 sm:px-3 sm:py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 text-xs font-semibold transition-colors"
+              title={
+                !isOnline
+                  ? "Modo Offline: Suas vendas estão gravadas com segurança no celular e sincronizarão assim que a internet voltar."
+                  : isSyncing
+                  ? "Sincronizando com a Nuvem Serallê..."
+                  : `Nuvem Sincronizada (Última vez: ${lastSync || "Agora"} · Código: ${syncCode || "—"})`
+              }
+              className={`p-2 sm:px-3 sm:py-2 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                !isOnline
+                  ? "bg-amber-50 border-amber-300 text-amber-800"
+                  : isSyncing
+                  ? "bg-blue-50 border-blue-300 text-blue-800"
+                  : "bg-white border-slate-200 hover:bg-slate-50 text-slate-700"
+              }`}
             >
-              <RefreshCw
-                className={`w-4 h-4 text-blue-600 ${isSyncing ? "animate-spin text-blue-500" : ""}`}
-              />
-              <span className="hidden lg:inline">
-                {isSyncing ? "Sincronizando..." : "Sincronizar"}
-              </span>
-              {lastSync && !isSyncing && (
-                <span className="w-2 h-2 rounded-full bg-emerald-500 hidden sm:inline-block" />
+              {!isOnline ? (
+                <WifiOff className="w-4 h-4 text-amber-600 shrink-0" />
+              ) : isSyncing ? (
+                <RefreshCw className="w-4 h-4 text-[#0082D7] animate-spin shrink-0" />
+              ) : (
+                <Cloud className="w-4 h-4 text-emerald-600 shrink-0" />
               )}
+
+              <span className="hidden lg:inline font-bold">
+                {!isOnline
+                  ? "Offline (Local)"
+                  : isSyncing
+                  ? "Salvando..."
+                  : "Nuvem Ok"}
+              </span>
+
+              {/* Status indicator dot */}
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  !isOnline
+                    ? "bg-amber-500 animate-pulse"
+                    : isSyncing
+                    ? "bg-blue-500 animate-ping"
+                    : "bg-emerald-500"
+                }`}
+              />
             </button>
 
-            {/* Metas Modal Button */}
+            {/* Metas Modal Button (Desktop) */}
             <button
               onClick={onOpenMetas}
-              className="p-2 sm:px-3 sm:py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 flex items-center gap-1.5 text-xs font-semibold transition-colors"
+              title="Configurar Metas"
+              className="hidden sm:flex p-2 sm:px-3 sm:py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 items-center gap-1.5 text-xs font-semibold transition-colors"
             >
               <Target className="w-4 h-4 text-emerald-600" />
-              <span className="hidden sm:inline">Metas</span>
+              <span>Metas</span>
             </button>
 
             {/* Relatório Modal Button */}
             <button
               onClick={onOpenRelatorio}
-              className="p-2 sm:px-3 sm:py-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/60 flex items-center gap-1.5 text-xs font-semibold transition-colors"
+              title="Relatório Mensal"
+              className="p-2 sm:px-3 sm:py-2 rounded-xl bg-blue-50/80 hover:bg-blue-100/80 text-[#0082D7] border border-blue-200/60 flex items-center gap-1.5 text-xs font-bold transition-colors cursor-pointer"
             >
-              <FileText className="w-4 h-4 text-blue-700" />
-              <span className="hidden sm:inline">Relatório</span>
+              <FileText className="w-4 h-4 text-[#0082D7]" />
+              <span className="hidden md:inline">Relatório</span>
+            </button>
+
+            {/* Backup & Proteção Button */}
+            {onOpenBackup && (
+              <button
+                onClick={onOpenBackup}
+                title="Backup & Proteção de Dados (Exportar / Restaurar)"
+                className="p-2 sm:px-3 sm:py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100/80 text-emerald-900 border border-emerald-200 flex items-center gap-1.5 text-xs font-bold transition-colors cursor-pointer"
+              >
+                <HardDrive className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="hidden md:inline">Backup</span>
+              </button>
+            )}
+
+            {/* Lembretes & Alertas Button */}
+            {onOpenLembretes && (
+              <button
+                onClick={onOpenLembretes}
+                title="Lembretes & Alertas Inteligentes (Fechamento de Turno e Ritmo)"
+                className="p-2 sm:px-3 sm:py-2 rounded-xl bg-amber-50 hover:bg-amber-100/80 text-amber-900 border border-amber-200 flex items-center gap-1.5 text-xs font-bold transition-colors cursor-pointer relative"
+              >
+                <Bell className="w-4 h-4 text-amber-600 shrink-0" />
+                <span className="hidden xl:inline">Alertas</span>
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              </button>
+            )}
+
+            {/* Test on Mobile / PWA / QR Code Button (Desktop only) */}
+            <button
+              onClick={onOpenInstalarMobile}
+              title="Testar e Instalar no Celular via QR Code"
+              className="hidden xl:flex p-2 sm:px-3 sm:py-2 rounded-xl bg-gradient-to-r from-[#0082D7] to-[#006BB5] hover:from-[#0075C2] hover:to-[#005FA3] text-white items-center gap-1.5 text-xs font-bold transition-all shadow-xs"
+            >
+              <Smartphone className="w-4 h-4 text-amber-300 animate-pulse" />
+              <span>Instalar no Celular</span>
             </button>
 
             {/* Seller Profile Switcher Dropdown */}
             <div className="relative">
               <button
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-                className="flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl bg-slate-100 hover:bg-slate-200/70 border border-slate-200 transition-all text-left"
+                className="flex items-center gap-1.5 sm:gap-2 p-1 sm:px-3 sm:py-2 rounded-xl bg-slate-100 hover:bg-slate-200/70 border border-slate-200 transition-all text-left"
               >
-                <div
-                  style={{ backgroundColor: corAvatar }}
-                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shadow-xs"
-                >
-                  {iniciais}
-                </div>
+                {userProfile?.photoURL || user?.photoURL ? (
+                  <img
+                    src={userProfile?.photoURL || user?.photoURL || ""}
+                    alt={nomeExibicao}
+                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg object-cover shadow-xs border border-slate-200"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div
+                    style={{ backgroundColor: corAvatar }}
+                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shadow-xs"
+                  >
+                    {iniciais}
+                  </div>
+                )}
                 <div className="hidden sm:block">
                   <p className="text-xs font-bold text-slate-900 leading-tight truncate max-w-[100px]">
-                    {perfilAtivo?.nome || "Vendedora"}
+                    {nomeExibicao}
                   </p>
                   <p className="text-[10px] text-slate-500 font-medium leading-none mt-0.5">
                     Vendedora
@@ -199,18 +316,34 @@ export function Header({
                     onClick={() => setProfileDropdownOpen(false)}
                   />
                   <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-100">
-                    <div className="px-4 py-2 border-b border-slate-100">
-                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                        Vendedora Ativa
+                    <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          Conta Conectada
+                        </p>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded-full">
+                          <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                          Seguro
+                        </span>
+                      </div>
+                      <p className="text-sm font-extrabold text-slate-900 truncate mt-0.5">
+                        {nomeExibicao}
                       </p>
-                      <p className="text-sm font-bold text-slate-900 truncate mt-0.5">
-                        {perfilAtivo?.nome}
-                      </p>
+                      {user?.email && (
+                        <p className="text-[11px] text-slate-500 font-medium truncate">
+                          {user.email}
+                        </p>
+                      )}
+                      {userProfile?.loja && (
+                        <p className="text-[10px] text-[#0082D7] font-bold mt-1 bg-sky-50 px-2 py-0.5 rounded-md inline-block">
+                          🏬 {userProfile.loja}
+                        </p>
+                      )}
                     </div>
 
                     <div className="max-h-56 overflow-y-auto py-1">
                       <p className="px-4 py-1 text-[11px] font-semibold text-slate-400">
-                        Trocar Perfil:
+                        Vendedora:
                       </p>
                       {perfis.map((p) => {
                         const ativo = p.id === perfilAtivo?.id;
@@ -233,19 +366,29 @@ export function Header({
                               </div>
                               <span
                                 className={`text-xs font-semibold ${
-                                   ativo ? "text-blue-700" : "text-slate-700"
+                                   ativo ? "text-[#0082D7] font-bold" : "text-slate-700"
                                 }`}
                               >
                                 {p.nome}
                               </span>
                             </div>
-                            {ativo && <Check className="w-4 h-4 text-blue-700" />}
+                            {ativo && <Check className="w-4 h-4 text-[#0082D7]" />}
                           </button>
                         );
                       })}
                     </div>
 
                     <div className="border-t border-slate-100 pt-1 mt-1">
+                      <button
+                        onClick={() => {
+                          setProfileDropdownOpen(false);
+                          onOpenInstalarMobile();
+                        }}
+                        className="w-full px-4 py-2 text-left flex items-center gap-2 text-xs font-semibold text-[#0082D7] hover:bg-sky-50"
+                      >
+                        <Smartphone className="w-4 h-4 text-[#0082D7]" />
+                        <span>📱 Testar no Celular (QR Code)</span>
+                      </button>
                       <button
                         onClick={() => {
                           setProfileDropdownOpen(false);
@@ -256,6 +399,30 @@ export function Header({
                         <Users className="w-4 h-4 text-slate-500" />
                         <span>Gerenciar Vendedoras & Nuvem</span>
                       </button>
+                      {onOpenLembretes && (
+                        <button
+                          onClick={() => {
+                            setProfileDropdownOpen(false);
+                            onOpenLembretes();
+                          }}
+                          className="w-full px-4 py-2 text-left flex items-center gap-2 text-xs font-semibold text-amber-800 hover:bg-amber-50 cursor-pointer"
+                        >
+                          <Bell className="w-4 h-4 text-amber-600" />
+                          <span>⏰ Lembretes & Fechamento de Turno</span>
+                        </button>
+                      )}
+                      {onOpenBackup && (
+                        <button
+                          onClick={() => {
+                            setProfileDropdownOpen(false);
+                            onOpenBackup();
+                          }}
+                          className="w-full px-4 py-2 text-left flex items-center gap-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 cursor-pointer"
+                        >
+                          <HardDrive className="w-4 h-4 text-emerald-600" />
+                          <span>💾 Backup & Proteção dos Dados</span>
+                        </button>
+                      )}
                       <button
                         onClick={() => {
                           setProfileDropdownOpen(false);
@@ -266,75 +433,23 @@ export function Header({
                         <HelpCircle className="w-4 h-4 text-slate-500" />
                         <span>Como usar o Diário</span>
                       </button>
+                      
+                      <button
+                        onClick={() => {
+                          setProfileDropdownOpen(false);
+                          onOpenPerfis();
+                        }}
+                        className="w-full px-4 py-2 text-left flex items-center gap-2 text-xs font-bold text-[#0082D7] hover:bg-sky-50 border-t border-slate-100 mt-1 transition-colors cursor-pointer"
+                      >
+                        <Users className="w-4 h-4 text-[#0082D7]" />
+                        <span>+ Nova Vendedora / Trocar Perfil</span>
+                      </button>
                     </div>
                   </div>
                 </>
               )}
             </div>
           </div>
-        </div>
-
-        {/* Mobile Navigation Tabs */}
-        <div className="flex md:hidden items-center justify-between py-2 border-t border-slate-100 overflow-x-auto gap-1">
-          <button
-            onClick={() => setViewMode("dashboard")}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold shrink-0 transition-all ${
-              viewMode === "dashboard"
-                ? "bg-blue-50 text-blue-700"
-                : "text-slate-600 hover:bg-slate-50"
-            }`}
-          >
-            <BarChart3 className="w-3.5 h-3.5" />
-            <span>Painel</span>
-          </button>
-
-          <button
-            onClick={() => setViewMode("calendario")}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold shrink-0 transition-all ${
-              viewMode === "calendario"
-                ? "bg-blue-50 text-blue-700"
-                : "text-slate-600 hover:bg-slate-50"
-            }`}
-          >
-            <Calendar className="w-3.5 h-3.5" />
-            <span>Calendário</span>
-          </button>
-
-          <button
-            onClick={() => setViewMode("analises")}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold shrink-0 transition-all ${
-              viewMode === "analises"
-                ? "bg-blue-50 text-blue-700"
-                : "text-slate-600 hover:bg-slate-50"
-            }`}
-          >
-            <PieIcon className="w-3.5 h-3.5" />
-            <span>Gráficos</span>
-          </button>
-
-          <button
-            onClick={() => setViewMode("loja")}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold shrink-0 transition-all ${
-              viewMode === "loja"
-                ? "bg-blue-50 text-blue-700"
-                : "text-slate-600 hover:bg-slate-50"
-            }`}
-          >
-            <Store className="w-3.5 h-3.5" />
-            <span>Loja</span>
-          </button>
-
-          <button
-            onClick={() => setViewMode("historico-metas")}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold shrink-0 transition-all ${
-              viewMode === "historico-metas"
-                ? "bg-blue-50 text-blue-700"
-                : "text-slate-600 hover:bg-slate-50"
-            }`}
-          >
-            <Target className="w-3.5 h-3.5" />
-            <span>Cotas</span>
-          </button>
         </div>
       </div>
     </header>

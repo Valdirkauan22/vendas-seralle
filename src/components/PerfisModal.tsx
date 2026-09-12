@@ -12,6 +12,7 @@ import {
   ArrowRight,
   ShieldCheck,
   CheckCircle2,
+  HardDrive,
 } from "lucide-react";
 import { useProfile } from "@/context/ProfileContext";
 import { useVendas } from "@/context/VendasContext";
@@ -19,9 +20,10 @@ import { getAvatarColor, getIniciais } from "@/utils/formatters";
 
 interface PerfisModalProps {
   onClose: () => void;
+  onOpenBackup?: () => void;
 }
 
-export function PerfisModal({ onClose }: PerfisModalProps) {
+export function PerfisModal({ onClose, onOpenBackup }: PerfisModalProps) {
   const {
     perfis,
     perfilAtivo,
@@ -348,11 +350,25 @@ export function PerfisModal({ onClose }: PerfisModalProps) {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+        <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+          {onOpenBackup ? (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenBackup();
+              }}
+              className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <HardDrive className="w-4 h-4 text-emerald-600" />
+              <span>Fazer Backup (Arquivo JSON)</span>
+            </button>
+          ) : <div />}
+
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-colors"
+            className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
           >
             Concluir
           </button>

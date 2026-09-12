@@ -21,7 +21,7 @@ interface VisaoLojaViewProps {
 
 export function VisaoLojaView({ mesId }: VisaoLojaViewProps) {
   const { getDadosTodasVendedoras, getConfigMes } = useVendas();
-  const { setPerfilAtivo } = useProfile();
+  const { selecionarPerfil } = useProfile();
 
   const config = getConfigMes(mesId);
   const sellersData = getDadosTodasVendedoras(mesId);
@@ -247,7 +247,7 @@ export function VisaoLojaView({ mesId }: VisaoLojaViewProps) {
                   </div>
 
                   <button
-                    onClick={() => setPerfilAtivo(seller.perfilId)}
+                    onClick={() => selecionarPerfil(seller.perfilId)}
                     className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-colors"
                   >
                     Abrir Diário

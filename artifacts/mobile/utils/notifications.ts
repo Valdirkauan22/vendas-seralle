@@ -43,8 +43,20 @@ export async function initNotificationHandler() {
         shouldShowList: true,
       }),
     });
+
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("default", {
+        name: "Lembretes Diário Serallê",
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#0082D7",
+        sound: "default",
+        enableVibrate: true,
+        showBadge: true,
+      });
+    }
   } catch {
-    // expo-notifications não disponível nesta plataforma (ex: Expo Go Android SDK 53+)
+    // expo-notifications não disponível nesta plataforma
   }
 }
 
@@ -67,6 +79,17 @@ export async function requestPermission(): Promise<boolean> {
   const Notifications = await getNotifications();
   if (!Notifications) return false;
   try {
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("default", {
+        name: "Lembretes Diário Serallê",
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#0082D7",
+        sound: "default",
+        enableVibrate: true,
+        showBadge: true,
+      });
+    }
     const { status: existing } = await Notifications.getPermissionsAsync();
     if (existing === "granted") return true;
     const { status } = await Notifications.requestPermissionsAsync();
@@ -111,6 +134,7 @@ export async function agendarNotificacao(config: NotifConfig): Promise<void> {
         title: "Diário de Vendas · Serallê",
         body,
         sound: true,
+        channelId: "default",
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.DAILY,

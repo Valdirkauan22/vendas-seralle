@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 
 interface SyncProfileData {
@@ -42,8 +43,108 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Global CORS & Cross-Origin headers to allow PWABuilder/Bubblewrap image fetchers
+  app.use((_req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    next();
+  });
+
   app.use(cors());
   app.use(express.json({ limit: "50mb" }));
+
+  // Static serving for public assets with CORS
+  const publicDir = path.join(process.cwd(), "public");
+  app.use(
+    express.static(publicDir, {
+      setHeaders: (res, filePath) => {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+        if (filePath.endsWith("sw.js")) {
+          res.setHeader("Service-Worker-Allowed", "/");
+          res.setHeader("Content-Type", "application/javascript");
+        }
+      },
+    })
+  );
+
+  // Explicit endpoints for PWA critical assets
+  app.get("/manifest.json", (_req, res) => {
+    res.setHeader("Content-Type", "application/manifest+json");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    res.sendFile(path.join(publicDir, "manifest.json"));
+  });
+
+  app.get("/sw.js", (_req, res) => {
+    res.setHeader("Service-Worker-Allowed", "/");
+    res.setHeader("Content-Type", "application/javascript");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    res.sendFile(path.join(publicDir, "sw.js"));
+  });
+
+  app.get("/icon-512.png", (_req, res) => {
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    const filePath = fs.existsSync(path.join(publicDir, "icon-512.png"))
+      ? path.join(publicDir, "icon-512.png")
+      : path.join(process.cwd(), "dist", "icon-512.png");
+    res.sendFile(filePath);
+  });
+
+  app.get("/icon-maskable-512.png", (_req, res) => {
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    const filePath = fs.existsSync(path.join(publicDir, "icon-maskable-512.png"))
+      ? path.join(publicDir, "icon-maskable-512.png")
+      : path.join(process.cwd(), "dist", "icon-maskable-512.png");
+    res.sendFile(filePath);
+  });
+
+  app.get("/icon-192.png", (_req, res) => {
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    const filePath = fs.existsSync(path.join(publicDir, "icon-192.png"))
+      ? path.join(publicDir, "icon-192.png")
+      : path.join(process.cwd(), "dist", "icon-192.png");
+    res.sendFile(filePath);
+  });
+
+  app.get("/screenshot-mobile.png", (_req, res) => {
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    const filePath = fs.existsSync(path.join(publicDir, "screenshot-mobile.png"))
+      ? path.join(publicDir, "screenshot-mobile.png")
+      : path.join(process.cwd(), "dist", "screenshot-mobile.png");
+    res.sendFile(filePath);
+  });
+
+  app.get("/screenshot-desktop.png", (_req, res) => {
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    const filePath = fs.existsSync(path.join(publicDir, "screenshot-desktop.png"))
+      ? path.join(publicDir, "screenshot-desktop.png")
+      : path.join(process.cwd(), "dist", "screenshot-desktop.png");
+    res.sendFile(filePath);
+  });
+
+  app.get("/seralle-logo.svg", (_req, res) => {
+    res.setHeader("Content-Type", "image/svg+xml");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    const filePath = fs.existsSync(path.join(publicDir, "seralle-logo.svg"))
+      ? path.join(publicDir, "seralle-logo.svg")
+      : path.join(process.cwd(), "dist", "seralle-logo.svg");
+    res.sendFile(filePath);
+  });
 
   // API Routes
   app.get("/api/health", (_req, res) => {

@@ -8,11 +8,11 @@ import {
   Check,
   CheckCircle2,
   Award,
-  ShoppingBag,
   FileSpreadsheet,
   Coins,
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import { LogoSeralle } from "@/components/LogoSeralle";
 import { useProfile } from "@/context/ProfileContext";
 import { useVendas } from "@/context/VendasContext";
 import {
@@ -136,7 +136,7 @@ export function RelatorioModal({ mesId, onClose }: RelatorioModalProps) {
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 no-print">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-700 text-white flex items-center justify-center shadow-xs">
+            <div className="w-10 h-10 rounded-xl bg-[#0082D7] text-white flex items-center justify-center shadow-xs">
               <FileText className="w-5 h-5" />
             </div>
             <div>
@@ -152,7 +152,7 @@ export function RelatorioModal({ mesId, onClose }: RelatorioModalProps) {
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -164,15 +164,10 @@ export function RelatorioModal({ mesId, onClose }: RelatorioModalProps) {
           {/* Company Brand Letterhead */}
           <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b-2 border-slate-200">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-700 text-white flex items-center justify-center font-black">
-                <ShoppingBag className="w-6 h-6" />
-              </div>
-              <div>
-                <h2 className="text-xl font-black text-slate-900 tracking-tight">
-                  SERALLÊ CALÇADOS
-                </h2>
+              <LogoSeralle size="md" />
+              <div className="border-l border-slate-200 pl-3 hidden sm:block">
                 <p className="text-xs font-semibold text-slate-500">
-                  Diário de Vendas & Acompanhamento de Metas
+                  Diário Oficial de Vendas & Metas
                 </p>
               </div>
             </div>
@@ -257,9 +252,9 @@ export function RelatorioModal({ mesId, onClose }: RelatorioModalProps) {
                     <span>{c.pares} pares</span>
                     <span>{c.pct}%</span>
                   </div>
-                  {c.premio > 0 && (
+                  {Boolean(c.premio && c.premio > 0) && (
                     <div className="text-[11px] font-bold text-amber-800 mt-1 pt-1 border-t border-slate-200/60">
-                      Bônus: {formatMoeda(c.premio)}
+                      Bônus: {formatMoeda(c.premio || 0)}
                     </div>
                   )}
                 </div>
