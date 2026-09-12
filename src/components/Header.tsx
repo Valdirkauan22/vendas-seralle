@@ -444,6 +444,18 @@ export function Header({
                         <Users className="w-4 h-4 text-[#0082D7]" />
                         <span>+ Nova Vendedora / Trocar Perfil</span>
                       </button>
+
+                      <button
+                        id="btn-sair-conta"
+                        onClick={async () => {
+                          setProfileDropdownOpen(false);
+                          await sair();
+                        }}
+                        className="w-full px-4 py-2.5 text-left flex items-center gap-2 text-xs font-bold text-rose-600 hover:bg-rose-50 border-t border-slate-100 mt-1 transition-colors cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4 text-rose-500" />
+                        <span>Sair da Conta / Tela de Login</span>
+                      </button>
                     </div>
                   </div>
                 </>

@@ -323,7 +323,7 @@ export function AuthScreen({ onOpenMobileGuide }: AuthScreenProps) {
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                <span>Criar Conta</span>
+                <span>Criar Conta (Cadastro)</span>
               </button>
             </div>
           )}
@@ -440,12 +440,12 @@ export function AuthScreen({ onOpenMobileGuide }: AuthScreenProps) {
             </div>
           ) : (
             <>
-              {/* Google Sign In Button */}
+              {/* Google Sign In / Sign Up Button */}
               {mode !== "recuperar" && (
                 <div className="mb-5">
                   <button
                     type="button"
-                    id="btn-entrar-com-google"
+                    id={mode === "cadastro" ? "btn-cadastrar-com-google" : "btn-entrar-com-google"}
                     onClick={handleGoogleLogin}
                     disabled={googleLoading || loading}
                     className="w-full py-3 px-4 rounded-2xl bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-800 font-bold text-xs sm:text-sm border border-slate-300 shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer disabled:opacity-60"
@@ -453,7 +453,11 @@ export function AuthScreen({ onOpenMobileGuide }: AuthScreenProps) {
                     {googleLoading ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin text-[#0082D7]" />
-                        <span>Conectando com o Google...</span>
+                        <span>
+                          {mode === "cadastro"
+                            ? "Cadastrando com Google..."
+                            : "Conectando com o Google..."}
+                        </span>
                       </>
                     ) : (
                       <>
@@ -476,15 +480,23 @@ export function AuthScreen({ onOpenMobileGuide }: AuthScreenProps) {
                             d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                           />
                         </svg>
-                        <span>Entrar com Google</span>
+                        <span>
+                          {mode === "cadastro" ? "Cadastrar com Google" : "Entrar com Google"}
+                        </span>
                       </>
                     )}
                   </button>
 
+                  <p className="text-[11px] text-center text-slate-500 mt-1.5 font-medium">
+                    {mode === "cadastro"
+                      ? "⚡ Crie sua conta em 1 clique com sua Conta Google"
+                      : "⚡ Acesse rapidamente usando sua Conta Google"}
+                  </p>
+
                   <div className="flex items-center my-4">
                     <div className="flex-1 border-t border-slate-200" />
                     <span className="px-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                      ou com e-mail
+                      {mode === "cadastro" ? "ou cadastre com e-mail" : "ou com e-mail e senha"}
                     </span>
                     <div className="flex-1 border-t border-slate-200" />
                   </div>

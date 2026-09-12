@@ -11,12 +11,9 @@ service cloud.firestore {
       }
     }
 
-    // Permitir sincronização e recuperação por Código de Sincronização (persistente na nuvem)
-    match /sync_stores/{syncCode} {
-      allow read, write: if true;
-      match /{document=**} {
-        allow read, write: if true;
-      }
+    // Bloquear qualquer leitura ou gravação pública sem autenticação
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

@@ -34,9 +34,7 @@ const STORAGE_OFFLINE_USER = "@diario_vendas:offline_user_v1";
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UsuarioAuth | null>(null);
-  const [isModoOffline, setIsModoOffline] = useState<boolean>(() => {
-    return localStorage.getItem(STORAGE_OFFLINE_USER) !== null;
-  });
+  const [isModoOffline, setIsModoOffline] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -106,31 +104,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           });
         }
       } else {
-        const storedOffline = localStorage.getItem(STORAGE_OFFLINE_USER);
-        if (storedOffline) {
-          try {
-            const parsed = JSON.parse(storedOffline);
-            setUserProfile(parsed);
-            setIsModoOffline(true);
-          } catch {
-            const defaultProfile: UsuarioAuth = {
-              uid: "offline_user",
-              email: null,
-              displayName: "Vendedora Serallê",
-              loja: "Serallê Calçados",
-              createdAt: new Date().toISOString(),
-            };
-            localStorage.setItem(STORAGE_OFFLINE_USER, JSON.stringify(defaultProfile));
-            setUserProfile(defaultProfile);
-            setIsModoOffline(true);
-          }
-        } else {
-          // Sem usuário logado e sem sessão offline prévia (primeiro acesso ou reinstalação)
-          // Mostra a tela de autenticação para que a vendedora possa entrar com Google, E-mail,
-          // restaurar por código de sincronização ou optar pelo modo rápido.
-          setUserProfile(null);
-          setIsModoOffline(false);
-        }
+        // Ao abrir o app ou reinstalar, se não houver usuário autenticado no Firebase,
+        // exibe a tela de login e cadastro para que a usuária possa se cadastrar ou entrar
+        // utilizando a conta Google ou E-mail/Senha.
+        setUserProfile(null);
+        setIsModoOffline(false);
+        localStorage.removeItem(STORAGE_OFFLINE_USER);
       }
       setLoading(false);
     });

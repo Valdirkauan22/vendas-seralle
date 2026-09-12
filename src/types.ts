@@ -25,6 +25,8 @@ export interface DiaVenda {
   folga?: boolean; // Se a vendedora está de folga neste dia
   atendimentosTotais?: number; // Total de pessoas atendidas no dia (para taxa de conversão)
   anotacoes?: string; // Observações do dia
+  updatedAt?: string; // Timestamp ISO da última alteração
+  deletedAt?: string | null; // Se o dia foi excluído (soft-delete para evitar reaparecimento)
 }
 
 export interface Cota {
@@ -50,6 +52,7 @@ export interface ConfigMes {
   faixasComissao?: FaixaComissao[];
   diasUteisMes?: number; // Dias úteis para cálculo de DSR
   domingosFeriadosMes?: number; // Domingos/Feriados para cálculo de DSR
+  updatedAt?: string; // Timestamp ISO da última alteração de metas
 }
 
 export interface UsuarioAuth {
@@ -58,6 +61,7 @@ export interface UsuarioAuth {
   displayName: string | null;
   photoURL?: string | null;
   loja?: string;
+  role?: "vendedora" | "gerente";
   createdAt?: string;
   lastLoginAt?: string;
 }

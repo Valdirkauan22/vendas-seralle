@@ -167,25 +167,27 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     const formatted = (code || "").trim().toUpperCase();
     if (!formatted) return null;
 
-    // 1. Prioridade: Firestore (persistente, banco real na nuvem)
-    try {
-      const docRef = doc(db, "sync_stores", formatted);
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        const data = snap.data();
-        return {
-          profiles: data.profiles || [],
-          dias: data.dias || [],
-          configs: data.configs || [],
-          rawDias: data.rawDias || null,
-          rawConfigs: data.rawConfigs || null,
-        };
+    // 1. Prioridade: Firestore do usuário autenticado
+    if (user?.uid) {
+      try {
+        const docRef = doc(db, "users", user.uid, "syncBackup", formatted);
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          const data = snap.data();
+          return {
+            profiles: data.profiles || [],
+            dias: data.dias || [],
+            configs: data.configs || [],
+            rawDias: data.rawDias || null,
+            rawConfigs: data.rawConfigs || null,
+          };
+        }
+      } catch (fsErr) {
+        console.warn("Aviso ao buscar backup no Firestore:", fsErr);
       }
-    } catch (fsErr) {
-      console.warn("Aviso ao buscar sync no Firestore:", fsErr);
     }
 
-    // 2. Fallback: API do Express
+    // 2. Fallback: API persistente em disco do Express
     try {
       const res = await fetch(`/api/sync/${formatted}`);
       if (!res.ok) return null;
@@ -194,7 +196,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       console.warn("Cloud pull error", e);
       return null;
     }
-  }, []);
+  }, [user?.uid]);
 
   const enviarDadosCloud = useCallback(async (code: string, payload: any): Promise<boolean> => {
     const formatted = (code || "").trim().toUpperCase();
@@ -202,24 +204,26 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
 
     let saved = false;
 
-    // 1. Grava no Firestore na coleção permanente sync_stores
-    try {
-      const docRef = doc(db, "sync_stores", formatted);
-      await setDoc(
-        docRef,
-        {
-          syncCode: formatted,
-          ...payload,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-      saved = true;
-    } catch (fsErr) {
-      console.warn("Aviso ao gravar sync no Firestore:", fsErr);
+    // 1. Grava no Firestore do usuário autenticado
+    if (user?.uid) {
+      try {
+        const docRef = doc(db, "users", user.uid, "syncBackup", formatted);
+        await setDoc(
+          docRef,
+          {
+            syncCode: formatted,
+            ...payload,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+        saved = true;
+      } catch (fsErr) {
+        console.warn("Aviso ao gravar backup no Firestore:", fsErr);
+      }
     }
 
-    // 2. Grava também no servidor para redundância
+    // 2. Grava também no servidor (persistente em disco) para redundância
     try {
       const res = await fetch(`/api/sync/${formatted}`, {
         method: "POST",
@@ -232,7 +236,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     }
 
     return saved;
-  }, []);
+  }, [user?.uid]);
 
   return (
     <ProfileContext.Provider

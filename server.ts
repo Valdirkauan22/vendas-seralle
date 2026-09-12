@@ -28,12 +28,63 @@ interface SyncConfigData {
   updatedAt: string;
 }
 
-// In-memory persistent storage store fallback
+// File-backed persistent storage store fallback
+const DATA_DIR = path.join(process.cwd(), "data");
+const STORE_FILE = path.join(DATA_DIR, "sync-store.json");
+
 const memoryStore = {
   profiles: new Map<string, SyncProfileData>(), // key: `${syncCode}:${profileId}`
   dias: new Map<string, SyncDiaData>(), // key: `${syncCode}:${profileId}:${data}`
   configs: new Map<string, SyncConfigData>(), // key: `${syncCode}:${profileId}:${mesId}`
 };
+
+function loadStoreFromDisk() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (fs.existsSync(STORE_FILE)) {
+      const raw = fs.readFileSync(STORE_FILE, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (parsed.profiles) {
+        for (const [k, v] of Object.entries(parsed.profiles)) {
+          memoryStore.profiles.set(k, v as SyncProfileData);
+        }
+      }
+      if (parsed.dias) {
+        for (const [k, v] of Object.entries(parsed.dias)) {
+          memoryStore.dias.set(k, v as SyncDiaData);
+        }
+      }
+      if (parsed.configs) {
+        for (const [k, v] of Object.entries(parsed.configs)) {
+          memoryStore.configs.set(k, v as SyncConfigData);
+        }
+      }
+      console.log(`[Storage] Carregados ${memoryStore.profiles.size} perfis, ${memoryStore.dias.size} dias e ${memoryStore.configs.size} configs do disco.`);
+    }
+  } catch (e) {
+    console.warn("[Storage] Erro ao carregar store do disco:", e);
+  }
+}
+
+function saveStoreToDisk() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    const data = {
+      profiles: Object.fromEntries(memoryStore.profiles.entries()),
+      dias: Object.fromEntries(memoryStore.dias.entries()),
+      configs: Object.fromEntries(memoryStore.configs.entries()),
+    };
+    fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch (e) {
+    console.warn("[Storage] Erro ao salvar store no disco:", e);
+  }
+}
+
+loadStoreFromDisk();
 
 function isValidSyncCode(code: string): boolean {
   return /^[A-Z0-9]{4,16}$/.test(code);
@@ -244,6 +295,9 @@ async function startServer() {
           });
         }
       }
+
+      // Persist updates to disk so they survive server restarts and redeploys
+      saveStoreToDisk();
 
       res.json({ ok: true, syncedAt: now });
     } catch (err) {

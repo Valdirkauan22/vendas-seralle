@@ -131,6 +131,8 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
               folga: Boolean(data.folga),
               atendimentosTotais: Number(data.atendimentosTotais) || 0,
               anotacoes: data.anotacoes || "",
+              updatedAt: data.updatedAt || "",
+              deletedAt: data.deletedAt || null,
             };
           });
 
@@ -142,29 +144,38 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
             firestoreConfigs[c.id] = c.data() as ConfigMes;
           });
 
+          const localKeysToPush: string[] = [];
+
           if (Object.keys(firestoreDias).length > 0) {
             setDias((prev) => {
-              // Fusão inteligente: garante que vendas criadas localmente não sejam perdidas
+              // Fusão determinística por carimbo de data/hora (LWW - Last Write Wins por registro)
               const merged: Record<string, DiaVenda> = { ...prev };
               
               Object.entries(firestoreDias).forEach(([dataKey, fDia]) => {
                 const existingLocal = merged[dataKey];
                 if (!existingLocal) {
-                  merged[dataKey] = fDia;
+                  // Se foi marcado como deletado no Firestore, não restaura
+                  if (!fDia.deletedAt) {
+                    merged[dataKey] = fDia;
+                  }
                 } else {
-                  // Unir itens por ID único
-                  const itemMap = new Map<string, VendaItem>();
-                  (fDia.itens || []).forEach((it) => it.id && itemMap.set(it.id, it));
-                  (existingLocal.itens || []).forEach((it) => it.id && itemMap.set(it.id, it));
+                  const localTime = existingLocal.updatedAt ? new Date(existingLocal.updatedAt).getTime() : 0;
+                  const remoteTime = fDia.updatedAt ? new Date(fDia.updatedAt).getTime() : 0;
 
-                  merged[dataKey] = {
-                    ...fDia,
-                    itens: Array.from(itemMap.values()),
-                    margem: existingLocal.margem > 0 ? existingLocal.margem : fDia.margem,
-                    folga: existingLocal.folga || fDia.folga,
-                    atendimentosTotais: Math.max(existingLocal.atendimentosTotais || 0, fDia.atendimentosTotais || 0),
-                    anotacoes: existingLocal.anotacoes || fDia.anotacoes || "",
-                  };
+                  if (remoteTime > localTime) {
+                    // Remoto é mais recente
+                    if (fDia.deletedAt) {
+                      delete merged[dataKey];
+                    } else {
+                      merged[dataKey] = fDia;
+                    }
+                  } else if (localTime > remoteTime) {
+                    // Local é mais recente: agenda para subir ao Firestore
+                    localKeysToPush.push(dataKey);
+                  } else {
+                    // Timestamps iguais: prioriza remoto consistente
+                    merged[dataKey] = fDia;
+                  }
                 }
               });
 
@@ -174,9 +185,10 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
             });
           }
 
-          // Se existiam vendas locais que não estavam na nuvem, sobe para o Firestore agora
-          for (const [dKey, dVal] of Object.entries(diasRef.current)) {
-            if (!firestoreDias[dKey]) {
+          // Se existiam vendas locais mais recentes ou não sincronizadas, sobe para o Firestore
+          for (const dKey of localKeysToPush) {
+            const dVal = diasRef.current[dKey];
+            if (dVal) {
               try {
                 const diaDoc = doc(db, "users", user.uid, "vendas", dKey);
                 await setDoc(diaDoc, {
@@ -186,7 +198,28 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
                   folga: Boolean(dVal.folga),
                   atendimentosTotais: dVal.atendimentosTotais || 0,
                   anotacoes: dVal.anotacoes || "",
-                  updatedAt: new Date().toISOString(),
+                  updatedAt: dVal.updatedAt || new Date().toISOString(),
+                });
+              } catch (uErr) {
+                console.warn("Aviso ao sincronizar venda local mais recente:", uErr);
+              }
+            }
+          }
+
+          // Se existiam vendas locais que não estavam na nuvem, sobe para o Firestore agora
+          for (const [dKey, dVal] of Object.entries(diasRef.current)) {
+            if (!firestoreDias[dKey]) {
+              try {
+                const nowIso = new Date().toISOString();
+                const diaDoc = doc(db, "users", user.uid, "vendas", dKey);
+                await setDoc(diaDoc, {
+                  data: dKey,
+                  itens: dVal.itens || [],
+                  margem: dVal.margem || 0,
+                  folga: Boolean(dVal.folga),
+                  atendimentosTotais: dVal.atendimentosTotais || 0,
+                  anotacoes: dVal.anotacoes || "",
+                  updatedAt: dVal.updatedAt || nowIso,
                 }, { merge: true });
               } catch (uErr) {
                 console.warn("Aviso ao sincronizar venda local para Firestore:", uErr);
@@ -196,7 +229,19 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
 
           if (Object.keys(firestoreConfigs).length > 0) {
             setConfigs((prev) => {
-              const merged = { ...firestoreConfigs, ...prev };
+              const merged: Record<string, ConfigMes> = { ...prev };
+              Object.entries(firestoreConfigs).forEach(([mesKey, fCfg]) => {
+                const localCfg = merged[mesKey];
+                if (!localCfg) {
+                  merged[mesKey] = fCfg;
+                } else {
+                  const localTime = localCfg.updatedAt ? new Date(localCfg.updatedAt).getTime() : 0;
+                  const remoteTime = fCfg.updatedAt ? new Date(fCfg.updatedAt).getTime() : 0;
+                  if (remoteTime >= localTime) {
+                    merged[mesKey] = fCfg;
+                  }
+                }
+              });
               localStorage.setItem(configsKey, JSON.stringify(merged));
               return merged;
             });
@@ -213,15 +258,25 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   // Persist dias locally and to Firestore
   const persistDias = useCallback(
     async (newDias: Record<string, DiaVenda>, updatedData?: string) => {
-      diasRef.current = newDias;
+      const nowIso = new Date().toISOString();
+      const updatedDias = { ...newDias };
+      if (updatedData && updatedDias[updatedData]) {
+        updatedDias[updatedData] = {
+          ...updatedDias[updatedData],
+          updatedAt: nowIso,
+          deletedAt: null,
+        };
+      }
+
+      diasRef.current = updatedDias;
       const { diasKey } = getStorageKeys(profileId);
-      localStorage.setItem(diasKey, JSON.stringify(newDias));
+      localStorage.setItem(diasKey, JSON.stringify(updatedDias));
 
       // Save to Firebase Firestore if logged in
       if (user?.uid && updatedData) {
         try {
           const diaDoc = doc(db, "users", user.uid, "vendas", updatedData);
-          const diaContent = newDias[updatedData];
+          const diaContent = updatedDias[updatedData];
           if (diaContent) {
             await setDoc(diaDoc, {
               data: updatedData,
@@ -230,10 +285,19 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
               folga: Boolean(diaContent.folga),
               atendimentosTotais: diaContent.atendimentosTotais || 0,
               anotacoes: diaContent.anotacoes || "",
-              updatedAt: new Date().toISOString(),
+              updatedAt: nowIso,
+              deletedAt: null,
             });
           } else {
-            await deleteDoc(diaDoc);
+            // Tombstone no Firestore para impedir que máquinas antigas ressuscitem a venda excluída
+            await setDoc(diaDoc, {
+              data: updatedData,
+              itens: [],
+              margem: 0,
+              folga: false,
+              deletedAt: nowIso,
+              updatedAt: nowIso,
+            });
           }
         } catch (err) {
           console.warn("Erro ao persistir venda no Firestore:", err);
@@ -248,15 +312,24 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   // Persist configs locally and to Firestore
   const persistConfigs = useCallback(
     async (newConfigs: Record<string, ConfigMes>, updatedMesId?: string) => {
-      setConfigs(newConfigs);
+      const nowIso = new Date().toISOString();
+      const updatedConfigs = { ...newConfigs };
+      if (updatedMesId && updatedConfigs[updatedMesId]) {
+        updatedConfigs[updatedMesId] = {
+          ...updatedConfigs[updatedMesId],
+          updatedAt: nowIso,
+        };
+      }
+
+      setConfigs(updatedConfigs);
       const { configsKey } = getStorageKeys(profileId);
-      localStorage.setItem(configsKey, JSON.stringify(newConfigs));
+      localStorage.setItem(configsKey, JSON.stringify(updatedConfigs));
 
       // Save to Firebase Firestore if logged in
       if (user?.uid && updatedMesId) {
         try {
           const cfgDoc = doc(db, "users", user.uid, "configMes", updatedMesId);
-          await setDoc(cfgDoc, newConfigs[updatedMesId]);
+          await setDoc(cfgDoc, updatedConfigs[updatedMesId]);
         } catch (err) {
           console.warn("Erro ao persistir cota no Firestore:", err);
         }
