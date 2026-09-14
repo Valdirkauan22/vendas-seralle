@@ -53,6 +53,7 @@ export interface ConfigMes {
   diasUteisMes?: number; // Dias úteis para cálculo de DSR
   domingosFeriadosMes?: number; // Domingos/Feriados para cálculo de DSR
   updatedAt?: string; // Timestamp ISO da última alteração de metas
+  deletedAt?: string | null;
 }
 
 export interface UsuarioAuth {

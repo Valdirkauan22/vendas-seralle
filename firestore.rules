@@ -1,17 +1,39 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Permitir acesso exclusivo do usuário aos seus próprios dados
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isManager() {
+      return isAuthenticated() && request.auth.token.role == 'gerente';
+    }
+
+    // Coleção de usuários (perfil e dados privados da vendedora)
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isOwner(userId) || isManager();
+      allow write: if isOwner(userId);
       
-      // Permitir acesso exclusivo a todas as subcoleções (vendas, configMes, etc.)
+      // Subcoleções de vendas, configurações e backups da vendedora
       match /{document=**} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read: if isOwner(userId) || isManager();
+        allow write: if isOwner(userId);
       }
     }
 
-    // Bloquear qualquer leitura ou gravação pública sem autenticação
+    // Coleção de sincronização pareada com controle estrito de proprietário (ownerUid)
+    match /sync_store/{syncCode} {
+      allow read: if isAuthenticated() && (resource.data.ownerUid == request.auth.uid || isManager());
+      allow create: if isAuthenticated() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isAuthenticated() && (resource.data.ownerUid == request.auth.uid || isManager());
+      allow delete: if isAuthenticated() && (resource.data.ownerUid == request.auth.uid || isManager());
+    }
+
+    // Bloquear qualquer outro acesso não autorizado
     match /{document=**} {
       allow read, write: if false;
     }

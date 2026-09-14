@@ -1,0 +1,59 @@
+name: Construir APK Android (Capacitor)
+
+on:
+  push:
+    branches: [ main, master, apk-build-20260914 ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do Repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Instalação Limpa de Dependências (npm ci)
+        run: npm ci
+
+      - name: Testes Unitários
+        run: npm test
+
+      - name: Compilação Web (Vite + Server)
+        run: npm run build
+
+      - name: Configurar Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Sincronizar Capacitor com Android
+        run: npx cap sync android
+
+      - name: Conceder Permissão de Execução ao Gradle Wrapper
+        run: chmod +x android/gradlew
+
+      - name: Compilar APK (Debug / Release Não-Assinado)
+        run: |
+          cd android
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Salvar APK como Artefato do Workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendas-seralle-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30

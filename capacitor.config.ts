@@ -1,15 +1,21 @@
-import type { CapacitorConfig } from "@capacitor/cli";
+import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: "com.seralle.vendas",
-  appName: "Diário de Vendas Serallê",
-  webDir: "dist",
+  appId: 'com.seralle.vendas',
+  appName: 'Diário de Vendas Serallê',
+  webDir: 'dist',
   server: {
-    androidScheme: "https",
+    androidScheme: 'https',
+    cleartext: true,
   },
-  android: {
-    allowMixedContent: false,
-    backgroundColor: "#0b1329",
+  plugins: {
+    SplashScreen: {
+      launchShowDuration: 1500,
+      launchAutoHide: true,
+      backgroundColor: '#C8102E',
+      androidSplashResourceName: 'splash',
+      androidScaleType: 'CENTER_CROP',
+    },
   },
 };
 

@@ -1,5 +1,5 @@
 {
-  "name": "Diário de Vendas Serallê",
+  "name": "Diário de Vendas Serallê Calçados",
   "description": "Controle de vendas diárias, metas mensais e cotas para vendedoras da Serallê Calçados",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

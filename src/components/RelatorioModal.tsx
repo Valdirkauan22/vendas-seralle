@@ -11,7 +11,6 @@ import {
   FileSpreadsheet,
   Coins,
 } from "lucide-react";
-import * as XLSX from "xlsx";
 import { LogoSeralle } from "@/components/LogoSeralle";
 import { useProfile } from "@/context/ProfileContext";
 import { useVendas } from "@/context/VendasContext";
@@ -69,39 +68,64 @@ export function RelatorioModal({ mesId, onClose }: RelatorioModalProps) {
   };
 
   const handleExportExcel = () => {
-    const rows = diasDoMes.map(([dStr, dData]) => {
+    const headers = [
+      "Data",
+      "Valor (R$)",
+      "Pares Vendidos",
+      "Ticket Médio / Par (R$)",
+      "Margem (%)",
+      "Qtd de Vendas",
+      "Categorias / Calçados",
+    ];
+
+    const lines = [headers.join(";")];
+
+    diasDoMes.forEach(([dStr, dData]) => {
       const val = dData.itens.reduce((a, b) => a + b.valor, 0);
       const par = dData.itens.reduce((a, b) => a + b.pares, 0);
-      return {
-        Data: dStr,
-        "Valor (R$)": val,
-        "Pares Vendidos": par,
-        "Ticket Médio / Par (R$)": par > 0 ? (val / par).toFixed(2) : 0,
-        "Margem (%)": dData.margem || 0,
-        "Qtd de Vendas": dData.itens.length,
-        "Categorias / Calçados": dData.itens.map((i) => i.categoria || "Geral").join(", "),
-      };
+      const ticketPar = par > 0 ? (val / par).toFixed(2) : "0,00";
+      const margem = (dData.margem || 0).toFixed(2);
+      const categorias = dData.itens.map((i) => i.categoria || "Geral").join(", ");
+
+      lines.push(
+        [
+          dStr,
+          val.toFixed(2).replace(".", ","),
+          par,
+          ticketPar.replace(".", ","),
+          margem.replace(".", ","),
+          dData.itens.length,
+          `"${categorias.replace(/"/g, '""')}"`,
+        ].join(";")
+      );
     });
 
-    // Add summary row
-    rows.push({
-      Data: "TOTAL",
-      "Valor (R$)": totalMes.valor,
-      "Pares Vendidos": totalMes.pares,
-      "Ticket Médio / Par (R$)": Number(ticketMedioPar.toFixed(2)),
-      "Margem (%)": Number(totalMes.margem.toFixed(2)),
-      "Qtd de Vendas": totalMes.qtdVendas,
-      "Categorias / Calçados": "-",
-    });
-
-    const worksheet = XLSX.utils.json_to_sheet(rows);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Vendas");
-
-    XLSX.writeFile(
-      workbook,
-      `vendas-seralle-${mesId}-${perfilAtivo?.nome || "vendedora"}.xlsx`
+    // Summary row
+    lines.push(
+      [
+        "TOTAL",
+        totalMes.valor.toFixed(2).replace(".", ","),
+        totalMes.pares,
+        ticketMedioPar.toFixed(2).replace(".", ","),
+        totalMes.margem.toFixed(2).replace(".", ","),
+        totalMes.qtdVendas,
+        "-",
+      ].join(";")
     );
+
+    const csvContent = "\uFEFF" + lines.join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute(
+      "download",
+      `vendas-seralle-${mesId}-${(perfilAtivo?.nome || "vendedora").toLowerCase().replace(/\s+/g, "_")}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleCopiarWhatsApp = () => {
@@ -351,7 +375,7 @@ export function RelatorioModal({ mesId, onClose }: RelatorioModalProps) {
               className="flex items-center gap-1.5 px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              <span>Exportar Excel (XLSX)</span>
+              <span>Exportar Planilha (CSV)</span>
             </button>
 
             <button

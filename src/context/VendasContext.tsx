@@ -4,7 +4,7 @@ import { useProfile } from "./ProfileContext";
 import { useAuth } from "./AuthContext";
 import { collection, doc, getDocs, setDoc, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { calcularTotaisDia, calcularTotaisMes } from "@/utils/commercialCalculations";
+import { calcularTotaisDia, calcularTotaisMes, reconciliarDiasVenda, reconciliarConfigsMes } from "@/utils/commercialCalculations";
 
 export const CONFIG_MES_PADRAO: ConfigMes = {
   cotaA: { valor: 55000, pares: 410, margem: 0, premio: 150 },
@@ -74,15 +74,18 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   const [dias, setDias] = useState<Record<string, DiaVenda>>({});
   const [configs, setConfigs] = useState<Record<string, ConfigMes>>({});
   const diasRef = useRef<Record<string, DiaVenda>>({});
-  // O perfil comercial é independente da conta de autenticação.
-  // Isso evita que vários perfis da mesma conta compartilhem os mesmos documentos.
-  const profileId = perfilAtivo?.id || user?.uid || "default";
+  const configsRef = useRef<Record<string, ConfigMes>>({});
+  const profileId = user?.uid || perfilAtivo?.id || "default";
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Keep diasRef updated in sync with dias state
+  // Keep refs updated in sync with state
   useEffect(() => {
     diasRef.current = dias;
   }, [dias]);
+
+  useEffect(() => {
+    configsRef.current = configs;
+  }, [configs]);
 
   // Load sales and configs for current user/profile
   useEffect(() => {
@@ -111,11 +114,13 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
       setDias(initialDias);
       diasRef.current = initialDias;
       setConfigs(initialConfigs);
+      configsRef.current = initialConfigs;
     } catch (e) {
       console.warn("Erro ao ler dados locais", e);
       setDias({});
       diasRef.current = {};
       setConfigs({});
+      configsRef.current = {};
     }
 
     // 2. If user is logged in to Firebase, load their isolated documents from Firestore
@@ -123,7 +128,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
       const loadFromFirestore = async () => {
         try {
           // Load vendas
-          const vendasCol = collection(db, "users", user.uid, "profiles", profileId, "vendas");
+          const vendasCol = collection(db, "users", user.uid, "vendas");
           const vendasSnap = await getDocs(vendasCol);
           const firestoreDias: Record<string, DiaVenda> = {};
           vendasSnap.forEach((d) => {
@@ -140,7 +145,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           });
 
           // Load configs
-          const configCol = collection(db, "users", user.uid, "profiles", profileId, "configMes");
+          const configCol = collection(db, "users", user.uid, "configMes");
           const configSnap = await getDocs(configCol);
           const firestoreConfigs: Record<string, ConfigMes> = {};
           configSnap.forEach((c) => {
@@ -193,7 +198,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
             const dVal = diasRef.current[dKey];
             if (dVal) {
               try {
-                const diaDoc = doc(db, "users", user.uid, "profiles", profileId, "vendas", dKey);
+                const diaDoc = doc(db, "users", user.uid, "vendas", dKey);
                 await setDoc(diaDoc, {
                   data: dKey,
                   itens: dVal.itens || [],
@@ -214,7 +219,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
             if (!firestoreDias[dKey]) {
               try {
                 const nowIso = new Date().toISOString();
-                const diaDoc = doc(db, "users", user.uid, "profiles", profileId, "vendas", dKey);
+                const diaDoc = doc(db, "users", user.uid, "vendas", dKey);
                 await setDoc(diaDoc, {
                   data: dKey,
                   itens: dVal.itens || [],
@@ -232,21 +237,9 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
 
           if (Object.keys(firestoreConfigs).length > 0) {
             setConfigs((prev) => {
-              const merged: Record<string, ConfigMes> = { ...prev };
-              Object.entries(firestoreConfigs).forEach(([mesKey, fCfg]) => {
-                const localCfg = merged[mesKey];
-                if (!localCfg) {
-                  merged[mesKey] = fCfg;
-                } else {
-                  const localTime = localCfg.updatedAt ? new Date(localCfg.updatedAt).getTime() : 0;
-                  const remoteTime = fCfg.updatedAt ? new Date(fCfg.updatedAt).getTime() : 0;
-                  if (remoteTime >= localTime) {
-                    merged[mesKey] = fCfg;
-                  }
-                }
-              });
-              localStorage.setItem(configsKey, JSON.stringify(merged));
-              return merged;
+              const { reconciliados } = reconciliarConfigsMes(prev, firestoreConfigs);
+              localStorage.setItem(configsKey, JSON.stringify(reconciliados));
+              return reconciliados;
             });
           }
         } catch (err) {
@@ -278,7 +271,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
       // Save to Firebase Firestore if logged in
       if (user?.uid && updatedData) {
         try {
-          const diaDoc = doc(db, "users", user.uid, "profiles", profileId, "vendas", updatedData);
+          const diaDoc = doc(db, "users", user.uid, "vendas", updatedData);
           const diaContent = updatedDias[updatedData];
           if (diaContent) {
             await setDoc(diaDoc, {
@@ -331,7 +324,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
       // Save to Firebase Firestore if logged in
       if (user?.uid && updatedMesId) {
         try {
-          const cfgDoc = doc(db, "users", user.uid, "profiles", profileId, "configMes", updatedMesId);
+          const cfgDoc = doc(db, "users", user.uid, "configMes", updatedMesId);
           await setDoc(cfgDoc, updatedConfigs[updatedMesId]);
         } catch (err) {
           console.warn("Erro ao persistir cota no Firestore:", err);
@@ -347,6 +340,145 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     if (!syncCode) return false;
     setIsSyncing(true);
     try {
+      // 1. PULL & RECONCILIAÇÃO PRIMEIRO:
+      // Busca dados mais recentes da nuvem ANTES de enviar qualquer dado local.
+      // Isso elimina o risco de um celular com dados desatualizados sobrescrever alterações mais novas feitas por outro aparelho.
+      const cloud = await puxarDadosCloud(syncCode);
+      let configsReconciliadas: Record<string, ConfigMes> = { ...(configsRef.current || configs) };
+
+      if (cloud) {
+        let cloudDiasForCurrent: Record<string, DiaVenda> = {};
+        if (cloud.perfisData?.[profileId]?.dias) {
+          cloudDiasForCurrent = cloud.perfisData[profileId].dias;
+        } else if (Array.isArray(cloud.dias)) {
+          cloud.dias.forEach((d: any) => {
+            if (d.profileId === profileId) {
+              try {
+                let parsedItens = [];
+                let parsedFolga = false;
+                let parsedAtend = 0;
+                let parsedAnot = "";
+                let parsedUpdatedAt: string | undefined = undefined;
+                let parsedDeletedAt: string | null = null;
+                if (typeof d.itensJson === "string") {
+                  const obj = JSON.parse(d.itensJson);
+                  if (Array.isArray(obj)) {
+                    parsedItens = obj;
+                  } else if (obj && typeof obj === "object") {
+                    parsedItens = obj.itens || [];
+                    parsedFolga = Boolean(obj.folga);
+                    parsedAtend = obj.atendimentosTotais || 0;
+                    parsedAnot = obj.anotacoes || "";
+                    parsedUpdatedAt = obj.updatedAt;
+                    parsedDeletedAt = obj.deletedAt || null;
+                  }
+                } else if (Array.isArray(d.itensJson)) {
+                  parsedItens = d.itensJson;
+                }
+
+                cloudDiasForCurrent[d.data] = {
+                  itens: parsedItens,
+                  margem: parseFloat(d.margem) || 0,
+                  folga: parsedFolga,
+                  atendimentosTotais: parsedAtend,
+                  anotacoes: parsedAnot,
+                  updatedAt: parsedUpdatedAt || d.updatedAt,
+                  deletedAt: parsedDeletedAt,
+                };
+              } catch {}
+            }
+          });
+        }
+
+        // Reconciliação robusta LWW (Last-Write-Wins) com preservação de registros mais novos
+        const { reconciliados } = reconciliarDiasVenda(diasRef.current, cloudDiasForCurrent);
+        setDias(reconciliados);
+        diasRef.current = reconciliados;
+        const { diasKey } = getStorageKeys(profileId);
+        localStorage.setItem(diasKey, JSON.stringify(reconciliados));
+
+        let cloudConfigsForCurrent: Record<string, ConfigMes> = {};
+        if (cloud.perfisData?.[profileId]?.configs) {
+          cloudConfigsForCurrent = cloud.perfisData[profileId].configs;
+        } else if (Array.isArray(cloud.configs)) {
+          cloud.configs.forEach((c: any) => {
+            if (c.profileId === profileId) {
+              try {
+                cloudConfigsForCurrent[c.mesId] =
+                  typeof c.configJson === "string" ? JSON.parse(c.configJson) : c.configJson;
+              } catch {}
+            }
+          });
+        }
+
+        const { reconciliados: mergedConfigs } = reconciliarConfigsMes(configsRef.current || configs, cloudConfigsForCurrent);
+        configsReconciliadas = mergedConfigs;
+        setConfigs(mergedConfigs);
+        configsRef.current = mergedConfigs;
+        const { configsKey } = getStorageKeys(profileId);
+        localStorage.setItem(configsKey, JSON.stringify(mergedConfigs));
+
+        // Reconcilia também dados de outros perfis se vierem no pacote da nuvem
+        if (Array.isArray(cloud.profiles)) {
+          cloud.profiles.forEach((cp: any) => {
+            if (cp.profileId && cp.profileId !== profileId) {
+              const otherDaysFromCloud: Record<string, DiaVenda> = {};
+              if (Array.isArray(cloud.dias)) {
+                cloud.dias.forEach((d: any) => {
+                  if (d.profileId === cp.profileId) {
+                    try {
+                      let parsedItens = [];
+                      let parsedFolga = false;
+                      let parsedAtend = 0;
+                      let parsedAnot = "";
+                      let parsedUpdatedAt: string | undefined = undefined;
+                      let parsedDeletedAt: string | null = null;
+                      if (typeof d.itensJson === "string") {
+                        const obj = JSON.parse(d.itensJson);
+                        if (Array.isArray(obj)) {
+                          parsedItens = obj;
+                        } else if (obj && typeof obj === "object") {
+                          parsedItens = obj.itens || [];
+                          parsedFolga = Boolean(obj.folga);
+                          parsedAtend = obj.atendimentosTotais || 0;
+                          parsedAnot = obj.anotacoes || "";
+                          parsedUpdatedAt = obj.updatedAt;
+                          parsedDeletedAt = obj.deletedAt || null;
+                        }
+                      } else if (Array.isArray(d.itensJson)) {
+                        parsedItens = d.itensJson;
+                      }
+                      otherDaysFromCloud[d.data] = {
+                        itens: parsedItens,
+                        margem: parseFloat(d.margem) || 0,
+                        folga: parsedFolga,
+                        atendimentosTotais: parsedAtend,
+                        anotacoes: parsedAnot,
+                        updatedAt: parsedUpdatedAt || d.updatedAt,
+                        deletedAt: parsedDeletedAt,
+                      };
+                    } catch {}
+                  }
+                });
+              }
+
+              const otherKeys = getStorageKeys(cp.profileId);
+              const otherLocalStored = localStorage.getItem(otherKeys.diasKey);
+              let otherLocalDays: Record<string, DiaVenda> = {};
+              if (otherLocalStored) {
+                try {
+                  otherLocalDays = JSON.parse(otherLocalStored);
+                } catch {}
+              }
+              const { reconciliados: otherReconciled } = reconciliarDiasVenda(otherLocalDays, otherDaysFromCloud);
+              localStorage.setItem(otherKeys.diasKey, JSON.stringify(otherReconciled));
+            }
+          });
+        }
+      }
+
+      // 2. MONTAGEM DO PAYLOAD CONVERGIDO E RECONCILIADO:
+      // Agora que tudo foi reconciliado (nuvem + local), construímos o pacote para salvar.
       const allProfilesPayload = perfis.map((p) => ({
         profileId: p.id,
         nome: p.nome,
@@ -383,6 +515,8 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
                   folga: Boolean(dia.folga),
                   atendimentosTotais: dia.atendimentosTotais || 0,
                   anotacoes: dia.anotacoes || "",
+                  updatedAt: dia.updatedAt || new Date().toISOString(),
+                  deletedAt: dia.deletedAt || null,
                 }),
                 margem: String(dia.margem ?? "0"),
               });
@@ -404,29 +538,49 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Garante que o estado atual em memória também esteja presente
+      // Garante que o estado atual em memória (reconciliado) também esteja presente no payload
       Object.entries(diasRef.current).forEach(([data, dia]) => {
-        const jaExiste = allDiasPayload.some((d) => d.profileId === profileId && d.data === data);
-        if (!jaExiste) {
-          allDiasPayload.push({
-            profileId,
-            data,
-            itensJson: JSON.stringify({
-              itens: dia.itens || [],
-              folga: Boolean(dia.folga),
-              atendimentosTotais: dia.atendimentosTotais || 0,
-              anotacoes: dia.anotacoes || "",
-            }),
-            margem: String(dia.margem ?? "0"),
-          });
+        const jaExisteIndex = allDiasPayload.findIndex((d) => d.profileId === profileId && d.data === data);
+        const diaItem = {
+          profileId,
+          data,
+          itensJson: JSON.stringify({
+            itens: dia.itens || [],
+            folga: Boolean(dia.folga),
+            atendimentosTotais: dia.atendimentosTotais || 0,
+            anotacoes: dia.anotacoes || "",
+            updatedAt: dia.updatedAt || new Date().toISOString(),
+            deletedAt: dia.deletedAt || null,
+          }),
+          margem: String(dia.margem ?? "0"),
+        };
+        if (jaExisteIndex >= 0) {
+          allDiasPayload[jaExisteIndex] = diaItem;
+        } else {
+          allDiasPayload.push(diaItem);
         }
       });
 
-      // 1. Se estiver logado, garante salvamento em cada documento no Firestore do usuário
+      // Garante que o estado atual reconciliado de configs também esteja presente no payload
+      Object.entries(configsReconciliadas).forEach(([mesId, cfg]) => {
+        const jaExisteIndex = allConfigsPayload.findIndex((c) => c.profileId === profileId && c.mesId === mesId);
+        const cfgItem = {
+          profileId,
+          mesId,
+          configJson: JSON.stringify(cfg),
+        };
+        if (jaExisteIndex >= 0) {
+          allConfigsPayload[jaExisteIndex] = cfgItem;
+        } else {
+          allConfigsPayload.push(cfgItem);
+        }
+      });
+
+      // 3. SE LOGADO, GRAVA DADOS RECONCILIADOS NO FIRESTORE DO USUÁRIO
       if (user?.uid) {
         try {
           for (const [dataKey, diaVal] of Object.entries(diasRef.current)) {
-            const diaDoc = doc(db, "users", user.uid, "profiles", profileId, "vendas", dataKey);
+            const diaDoc = doc(db, "users", user.uid, "vendas", dataKey);
             await setDoc(
               diaDoc,
               {
@@ -436,14 +590,15 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
                 folga: Boolean(diaVal.folga),
                 atendimentosTotais: diaVal.atendimentosTotais || 0,
                 anotacoes: diaVal.anotacoes || "",
-                updatedAt: new Date().toISOString(),
+                updatedAt: diaVal.updatedAt || new Date().toISOString(),
+                deletedAt: diaVal.deletedAt || null,
               },
               { merge: true }
             );
           }
 
-          for (const [mesKey, cfgVal] of Object.entries(configs)) {
-            const cfgDoc = doc(db, "users", user.uid, "profiles", profileId, "configMes", mesKey);
+          for (const [mesKey, cfgVal] of Object.entries(configsReconciliadas)) {
+            const cfgDoc = doc(db, "users", user.uid, "configMes", mesKey);
             await setDoc(cfgDoc, cfgVal, { merge: true });
           }
 
@@ -457,74 +612,20 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // 2. Salva na nuvem persistente pelo código de sincronização
+      // 4. PUSH DOS DADOS RECONCILIADOS PARA A NUVEM PERSISTENTE
       await enviarDadosCloud(syncCode, {
         profiles: allProfilesPayload,
         dias: allDiasPayload,
         configs: allConfigsPayload,
+        perfisData: {
+          [profileId]: {
+            profileId,
+            nome: perfilAtivo?.nome || "Vendedora",
+            dias: diasRef.current,
+            configs: configsReconciliadas,
+          },
+        },
       });
-
-      // 3. Puxa atualizações se houver
-      const cloud = await puxarDadosCloud(syncCode);
-      if (cloud) {
-        let cloudDiasForCurrent: Record<string, DiaVenda> = {};
-        if (Array.isArray(cloud.dias)) {
-          cloud.dias.forEach((d: any) => {
-            if (d.profileId === profileId) {
-              try {
-                let parsedItens = [];
-                let parsedFolga = false;
-                let parsedAtend = 0;
-                let parsedAnot = "";
-                if (typeof d.itensJson === "string") {
-                  const obj = JSON.parse(d.itensJson);
-                  if (Array.isArray(obj)) {
-                    parsedItens = obj;
-                  } else if (obj && typeof obj === "object") {
-                    parsedItens = obj.itens || [];
-                    parsedFolga = Boolean(obj.folga);
-                    parsedAtend = obj.atendimentosTotais || 0;
-                    parsedAnot = obj.anotacoes || "";
-                  }
-                } else if (Array.isArray(d.itensJson)) {
-                  parsedItens = d.itensJson;
-                }
-
-                cloudDiasForCurrent[d.data] = {
-                  itens: parsedItens,
-                  margem: parseFloat(d.margem) || 0,
-                  folga: parsedFolga,
-                  atendimentosTotais: parsedAtend,
-                  anotacoes: parsedAnot,
-                };
-              } catch {}
-            }
-          });
-        }
-
-        const mergedDias = { ...diasRef.current, ...cloudDiasForCurrent };
-        setDias(mergedDias);
-        diasRef.current = mergedDias;
-        const { diasKey } = getStorageKeys(profileId);
-        localStorage.setItem(diasKey, JSON.stringify(mergedDias));
-
-        let cloudConfigsForCurrent: Record<string, ConfigMes> = {};
-        if (Array.isArray(cloud.configs)) {
-          cloud.configs.forEach((c: any) => {
-            if (c.profileId === profileId) {
-              try {
-                cloudConfigsForCurrent[c.mesId] =
-                  typeof c.configJson === "string" ? JSON.parse(c.configJson) : c.configJson;
-              } catch {}
-            }
-          });
-        }
-
-        const mergedConfigs = { ...configs, ...cloudConfigsForCurrent };
-        setConfigs(mergedConfigs);
-        const { configsKey } = getStorageKeys(profileId);
-        localStorage.setItem(configsKey, JSON.stringify(mergedConfigs));
-      }
 
       const now = new Date();
       setLastSync(now);
@@ -552,6 +653,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     perfis,
     profileId,
     configs,
+    perfilAtivo?.nome,
     setIsSyncing,
     setLastSync,
     enviarDadosCloud,
@@ -584,42 +686,58 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         let diasToMerge: Record<string, DiaVenda> = {};
         let configsToMerge: Record<string, ConfigMes> = {};
 
-        if (Array.isArray(cloudData.dias)) {
-          cloudData.dias.forEach((d: any) => {
-            if (d.profileId !== profileId) return;
-            try {
-              let parsedItens = [];
-              let parsedFolga = false;
-              let parsedAtend = 0;
-              let parsedAnot = "";
-              if (typeof d.itensJson === "string") {
-                const obj = JSON.parse(d.itensJson);
-                if (Array.isArray(obj)) {
-                  parsedItens = obj;
-                } else if (obj && typeof obj === "object") {
-                  parsedItens = obj.itens || [];
-                  parsedFolga = Boolean(obj.folga);
-                  parsedAtend = obj.atendimentosTotais || 0;
-                  parsedAnot = obj.anotacoes || "";
-                }
-              } else if (Array.isArray(d.itensJson)) {
-                parsedItens = d.itensJson;
-              }
+        if (cloudData.perfisData?.[profileId]?.dias) {
+          diasToMerge = cloudData.perfisData[profileId].dias;
+          configsToMerge = cloudData.perfisData[profileId].configs || {};
+        } else if (Array.isArray(cloudData.dias)) {
+          // Extrai dias da vendedora correta ou se só houver uma
+          const targetProfileId =
+            cloudData.profiles?.find((p: any) => p.profileId === profileId)?.profileId ||
+            (cloudData.profiles?.length === 1 ? cloudData.profiles[0].profileId : profileId);
 
-              diasToMerge[d.data] = {
-                itens: parsedItens,
-                margem: parseFloat(d.margem) || 0,
-                folga: parsedFolga,
-                atendimentosTotais: parsedAtend,
-                anotacoes: parsedAnot,
-              };
-            } catch {}
+          cloudData.dias.forEach((d: any) => {
+            if (d.profileId === targetProfileId || !d.profileId) {
+              try {
+                let parsedItens = [];
+                let parsedFolga = false;
+                let parsedAtend = 0;
+                let parsedAnot = "";
+                let parsedUpdatedAt: string | undefined = undefined;
+                let parsedDeletedAt: string | null = null;
+                if (typeof d.itensJson === "string") {
+                  const obj = JSON.parse(d.itensJson);
+                  if (Array.isArray(obj)) {
+                    parsedItens = obj;
+                  } else if (obj && typeof obj === "object") {
+                    parsedItens = obj.itens || [];
+                    parsedFolga = Boolean(obj.folga);
+                    parsedAtend = obj.atendimentosTotais || 0;
+                    parsedAnot = obj.anotacoes || "";
+                    parsedUpdatedAt = obj.updatedAt;
+                    parsedDeletedAt = obj.deletedAt || null;
+                  }
+                } else if (Array.isArray(d.itensJson)) {
+                  parsedItens = d.itensJson;
+                }
+
+                diasToMerge[d.data] = {
+                  itens: parsedItens,
+                  margem: parseFloat(d.margem) || 0,
+                  folga: parsedFolga,
+                  atendimentosTotais: parsedAtend,
+                  anotacoes: parsedAnot,
+                  updatedAt: parsedUpdatedAt || d.updatedAt,
+                  deletedAt: parsedDeletedAt,
+                };
+              } catch {}
+            }
           });
         }
 
-        if (Array.isArray(cloudData.configs)) {
+        if (cloudData.perfisData?.[profileId]?.configs) {
+          configsToMerge = cloudData.perfisData[profileId].configs;
+        } else if (Array.isArray(cloudData.configs)) {
           cloudData.configs.forEach((c: any) => {
-            if (c.profileId !== profileId) return;
             try {
               configsToMerge[c.mesId] =
                 typeof c.configJson === "string" ? JSON.parse(c.configJson) : c.configJson;
@@ -636,41 +754,43 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           };
         }
 
-        // Fusão com dias em memória
-        const mergedDias = { ...diasRef.current, ...diasToMerge };
-        const mergedConfigs = { ...configs, ...configsToMerge };
+        // Fusão com garantia LWW por registro
+        const { reconciliados } = reconciliarDiasVenda(diasRef.current, diasToMerge);
+        const { reconciliados: mergedConfigs } = reconciliarConfigsMes(configs, configsToMerge);
 
-        setDias(mergedDias);
-        diasRef.current = mergedDias;
+        setDias(reconciliados);
+        diasRef.current = reconciliados;
         setConfigs(mergedConfigs);
 
         // Salva nas chaves do perfil atual
         const { diasKey, configsKey } = getStorageKeys(profileId);
-        localStorage.setItem(diasKey, JSON.stringify(mergedDias));
+        localStorage.setItem(diasKey, JSON.stringify(reconciliados));
         localStorage.setItem(configsKey, JSON.stringify(mergedConfigs));
 
         // Se logado no Firebase, grava no banco de dados do usuário
         if (user?.uid) {
           try {
-            for (const [dataKey, diaVal] of Object.entries(mergedDias)) {
-              const diaDoc = doc(db, "users", user.uid, "profiles", profileId, "vendas", dataKey);
+            for (const [dataKey, val] of Object.entries(reconciliados)) {
+              const diaVal = val as DiaVenda;
+              const diaDoc = doc(db, "users", user.uid, "vendas", dataKey);
               await setDoc(
                 diaDoc,
                 {
                   data: dataKey,
-                  itens: diaVal.itens,
-                  margem: diaVal.margem,
+                  itens: diaVal.itens || [],
+                  margem: diaVal.margem || 0,
                   folga: Boolean(diaVal.folga),
                   atendimentosTotais: diaVal.atendimentosTotais || 0,
                   anotacoes: diaVal.anotacoes || "",
-                  updatedAt: new Date().toISOString(),
+                  updatedAt: diaVal.updatedAt || new Date().toISOString(),
+                  deletedAt: diaVal.deletedAt || null,
                 },
                 { merge: true }
               );
             }
 
             for (const [mesKey, cfgVal] of Object.entries(mergedConfigs)) {
-              const cfgDoc = doc(db, "users", user.uid, "profiles", profileId, "configMes", mesKey);
+              const cfgDoc = doc(db, "users", user.uid, "configMes", mesKey);
               await setDoc(cfgDoc, cfgVal, { merge: true });
             }
           } catch (uErr) {
@@ -921,22 +1041,24 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   const getDiaTotais = useCallback(
     (data: string): TotaisDia => {
       const dia = dias[data];
-      const calculado = calcularTotaisDia(dia);
+      const res = calcularTotaisDia(dia);
       return {
-        valor: calculado.valor,
-        pares: calculado.pares,
-        qtd: calculado.qtdVendas,
-        produtosAgregados: calculado.produtosAgregados,
-        atendimentosTotais: dia?.atendimentosTotais || calculado.qtdVendas,
-        pa: calculado.pa,
-        taxaConversao: calculado.taxaConversao,
+        valor: res.valor,
+        pares: res.pares,
+        qtd: res.qtdVendas,
+        produtosAgregados: res.produtosAgregados,
+        atendimentosTotais: dia?.atendimentosTotais || res.qtdVendas,
+        pa: res.pa,
+        taxaConversao: res.taxaConversao,
       };
     },
     [dias]
   );
 
   const getTotalMes = useCallback(
-    (mesId: string): TotaisMes => calcularTotaisMes(dias, mesId),
+    (mesId: string): TotaisMes => {
+      return calcularTotaisMes(dias, mesId);
+    },
     [dias]
   );
 
@@ -1092,7 +1214,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         if (user?.uid) {
           try {
             for (const [dataKey, diaVal] of Object.entries(mergedDias)) {
-              const diaDoc = doc(db, "users", user.uid, "profiles", profileId, "vendas", dataKey);
+              const diaDoc = doc(db, "users", user.uid, "vendas", dataKey);
               await setDoc(
                 diaDoc,
                 {
@@ -1109,7 +1231,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
             }
 
             for (const [mesKey, cfgVal] of Object.entries(mergedConfigs)) {
-              const cfgDoc = doc(db, "users", user.uid, "profiles", profileId, "configMes", mesKey);
+              const cfgDoc = doc(db, "users", user.uid, "configMes", mesKey);
               await setDoc(cfgDoc, cfgVal, { merge: true });
             }
           } catch (cloudErr) {
