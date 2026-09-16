@@ -219,7 +219,8 @@ async function startServer() {
     next();
   });
   app.use((0, import_cors.default)());
-  app.use(import_express.default.json({ limit: "2mb" }));
+  app.options("*", (0, import_cors.default)());
+  app.use(import_express.default.json({ limit: "10mb" }));
   const publicDir = import_path.default.join(process.cwd(), "public");
   app.use(
     import_express.default.static(publicDir, {
@@ -290,6 +291,87 @@ async function startServer() {
   });
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+  });
+  app.post("/api/transcribe-voice", apiRateLimiter, async (req, res) => {
+    try {
+      const { audioBase64, mimeType, textInput } = req.body;
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: "Chave GEMINI_API_KEY n\xE3o configurada no servidor." });
+      }
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({ apiKey });
+      const promptInstructions = `Voc\xEA \xE9 um assistente de vendas da loja de sapatos Serall\xEA Cal\xE7ados.
+Sua tarefa \xE9 analisar o \xE1udio ou texto falado pela vendedora e extrair os dados da venda.
+Voc\xEA DEVE responder ESTRITAMENTE em formato JSON com o seguinte schema:
+{
+  "valor": number (valor monet\xE1rio em reais, ex: 199.90 ou 250.00. Se n\xE3o informado ou zero, coloque 0),
+  "pares": number (n\xFAmero de pares de cal\xE7ados vendidos, n\xFAmero inteiro >= 1. Padr\xE3o 1),
+  "agregados": number (quantidade de itens agregados como meias, sprays, palmilhas, cintos, limpador. Padr\xE3o 0),
+  "categoria": "Feminino" | "Masculino" | "Infantil" | "Esportivo" | "Conforto" | "Acess\xF3rios",
+  "descricao": string (descri\xE7\xE3o curta e leg\xEDvel da venda, ex: "T\xEAnis Feminino + 1 Par de Meias"),
+  "transcricao": string (o texto exato que a vendedora falou)
+}
+Instru\xE7\xF5es para categoria:
+- Feminino: rasteira, sand\xE1lia, salto, scarpin, bota feminina, sapatilha, vizzano, moleca, dakota, via marte, beira rio.
+- Masculino: sapat\xEAnis, sapato social, bota masculina, ferracini, democrata, pegada.
+- Esportivo: t\xEAnis de corrida, academia, caminhada, olympikus, nike, mizuno, fila, asics.
+- Infantil: infantil, molekinha, molekinho, klin, bibi, kids, beb\xEA.
+- Conforto: usaflex, modare, ortop\xE9dico, campesi, piccadilly.
+- Acess\xF3rios: meias, palmilhas, sprays, bolsas, cintos, carteiras.
+Responda APENAS o JSON puro sem formata\xE7\xE3o markdown envolvente.`;
+      let contents;
+      if (audioBase64) {
+        contents = [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  mimeType: mimeType || "audio/webm",
+                  data: audioBase64
+                }
+              },
+              {
+                text: `${promptInstructions}
+
+Analise o \xE1udio enviado.`
+              }
+            ]
+          }
+        ];
+      } else if (textInput) {
+        contents = [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `${promptInstructions}
+
+Texto recebido:
+"${textInput}"`
+              }
+            ]
+          }
+        ];
+      } else {
+        return res.status(400).json({ error: "Par\xE2metro 'audioBase64' ou 'textInput' \xE9 obrigat\xF3rio." });
+      }
+      const response = await ai.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents,
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+      const responseText = response.text || "{}";
+      const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+      const parsedData = JSON.parse(cleanJson);
+      res.json(parsedData);
+    } catch (err) {
+      console.error("Erro no processamento de voz com Gemini:", err);
+      res.status(500).json({ error: "Erro ao processar \xE1udio: " + (err.message || String(err)) });
+    }
   });
   app.post("/api/admin/set-role", apiRateLimiter, async (req, res) => {
     const authHeader = req.headers.authorization;

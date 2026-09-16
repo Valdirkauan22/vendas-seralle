@@ -1,7 +1,11 @@
 package com.seralle.vendas;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.webkit.WebSettings;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -12,6 +16,16 @@ public class MainActivity extends BridgeActivity {
             WebSettings webSettings = this.bridge.getWebView().getSettings();
             webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
             webSettings.setSupportMultipleWindows(true);
+            webSettings.setMediaPlaybackRequiresUserGesture(false);
+        }
+
+        // Garante que a permissão de gravação de áudio esteja solicitada e concedida para o microfone
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.MODIFY_AUDIO_SETTINGS
+            }, 1001);
         }
     }
 }
+

@@ -4,6 +4,7 @@ import { gerarSyncCode } from "@/utils/formatters";
 import { useAuth } from "./AuthContext";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { getApiUrl } from "@/utils/apiConfig";
 
 const STORAGE_KEY_PERFIS = "@diario_vendas:perfis_v1";
 const STORAGE_KEY_ATIVO = "@diario_vendas:perfil_ativo_v1";
@@ -194,7 +195,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`/api/sync/${formatted}`, {
+      const res = await fetch(getApiUrl(`/api/sync/${formatted}`), {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -256,7 +257,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     // 2. Grava no servidor Express com token de autenticação oficial
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`/api/sync/${formatted}`, {
+      const res = await fetch(getApiUrl(`/api/sync/${formatted}`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

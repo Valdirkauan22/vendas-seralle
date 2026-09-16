@@ -1,3 +1,6 @@
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
+
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -277,7 +280,8 @@ async function startServer() {
   });
 
   app.use(cors());
-  app.use(express.json({ limit: "2mb" }));
+  app.options("*", cors());
+  app.use(express.json({ limit: "10mb" }));
 
   // Static serving for public assets with CORS
   const publicDir = path.join(process.cwd(), "public");
@@ -373,6 +377,140 @@ async function startServer() {
   // API Routes
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // Endpoint de transcrição e inteligência de voz com Gemini API
+  app.post("/api/transcribe-voice", apiRateLimiter, async (req, res) => {
+    try {
+      const { audioBase64, mimeType, textInput } = req.body;
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: "Chave GEMINI_API_KEY não configurada no servidor." });
+      }
+
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({ apiKey });
+
+      const promptInstructions = `Você é um assistente de vendas da loja de sapatos Serallê Calçados.
+Sua tarefa é analisar o áudio ou texto falado pela vendedora e extrair os dados da venda.
+Você DEVE responder ESTRITAMENTE em formato JSON com o seguinte schema:
+{
+  "valor": number (valor monetário em reais, ex: 199.90 ou 250.00. Se não informado ou zero, coloque 0),
+  "pares": number (número de pares de calçados vendidos, número inteiro >= 1. Padrão 1),
+  "agregados": number (quantidade de itens agregados como meias, sprays, palmilhas, cintos, limpador. Padrão 0),
+  "categoria": "Feminino" | "Masculino" | "Infantil" | "Esportivo" | "Conforto" | "Acessórios",
+  "descricao": string (descrição curta e legível da venda, ex: "Tênis Feminino + 1 Par de Meias"),
+  "transcricao": string (o texto exato que a vendedora falou)
+}
+Instruções para categoria:
+- Feminino: rasteira, sandália, salto, scarpin, bota feminina, sapatilha, vizzano, moleca, dakota, via marte, beira rio.
+- Masculino: sapatênis, sapato social, bota masculina, ferracini, democrata, pegada.
+- Esportivo: tênis de corrida, academia, caminhada, olympikus, nike, mizuno, fila, asics.
+- Infantil: infantil, molekinha, molekinho, klin, bibi, kids, bebê.
+- Conforto: usaflex, modare, ortopédico, campesi, piccadilly.
+- Acessórios: meias, palmilhas, sprays, bolsas, cintos, carteiras.
+Responda APENAS o JSON puro sem formatação markdown envolvente.`;
+
+      let contents: any;
+      if (audioBase64) {
+        contents = [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  mimeType: mimeType || "audio/webm",
+                  data: audioBase64,
+                },
+              },
+              {
+                text: `${promptInstructions}\n\nAnalise o áudio enviado.`
+              },
+            ],
+          },
+        ];
+      } else if (textInput) {
+        contents = [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `${promptInstructions}\n\nTexto recebido:\n"${textInput}"`
+              },
+            ],
+          },
+        ];
+      } else {
+        return res.status(400).json({ error: "Parâmetro 'audioBase64' ou 'textInput' é obrigatório." });
+      }
+
+      const candidateModels = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.5-flash", "gemini-3.6-flash"];
+      let parsedData: any = null;
+      let lastError: any = null;
+
+      for (const modelName of candidateModels) {
+        try {
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`Timeout de 3.5s no modelo ${modelName}`)), 3500)
+          );
+
+          const generatePromise = ai.models.generateContent({
+            model: modelName,
+            contents,
+            config: {
+              responseMimeType: "application/json",
+            },
+          });
+
+          const response: any = await Promise.race([generatePromise, timeoutPromise]);
+
+          const responseText = response.text || "{}";
+          const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+          parsedData = JSON.parse(cleanJson);
+          if (parsedData && (parsedData.valor !== undefined || parsedData.descricao || parsedData.transcricao)) {
+            break;
+          }
+        } catch (modelErr: any) {
+          lastError = modelErr;
+          console.warn(`[Voice] Modelo ${modelName} falhou, tentando próximo:`, modelErr.message || modelErr);
+        }
+      }
+
+      if (parsedData) {
+        return res.json(parsedData);
+      }
+
+      // Se todas as IAs falharam mas temos texto recebido, responde com dados básicos estruturados
+      if (textInput) {
+        const lower = textInput.toLowerCase();
+        let cat = "Feminino";
+        if (lower.includes("masculin") || lower.includes("sapato social") || lower.includes("sapatênis") || lower.includes("bota masculina") || lower.includes("pegada") || lower.includes("ferracini")) cat = "Masculino";
+        else if (lower.includes("infantil") || lower.includes("kids") || lower.includes("bebê") || lower.includes("molekinh") || lower.includes("klin")) cat = "Infantil";
+        else if (lower.includes("esport") || lower.includes("tênis") || lower.includes("corrida") || lower.includes("nike") || lower.includes("olympikus")) cat = "Esportivo";
+        else if (lower.includes("confort") || lower.includes("usaflex") || lower.includes("modare") || lower.includes("piccadilly")) cat = "Conforto";
+        else if (lower.includes("meia") || lower.includes("spray") || lower.includes("palmilha") || lower.includes("cinto") || lower.includes("bolsa")) cat = "Acessórios";
+
+        // Extrai número do texto se possível
+        const numMatch = textInput.match(/\d+([.,]\d+)?/);
+        const valorExtraido = numMatch ? parseFloat(numMatch[0].replace(",", ".")) : 0;
+
+        return res.json({
+          valor: valorExtraido,
+          pares: 1,
+          agregados: lower.includes("meia") || lower.includes("spray") ? 1 : 0,
+          categoria: cat,
+          descricao: textInput.slice(0, 60),
+          transcricao: textInput,
+        });
+      }
+
+      console.error("Erro no processamento de voz com Gemini:", lastError);
+      res.status(500).json({ error: "Erro ao processar áudio: " + (lastError?.message || "Modelos indisponíveis") });
+    } catch (err: any) {
+      console.error("Erro geral na rota /api/transcribe-voice:", err);
+      res.status(500).json({ error: "Erro interno no processamento de voz: " + (err.message || String(err)) });
+    }
   });
 
   // Endpoint Administrativo para Gerenciamento de Cargos (Gerente / Vendedora)

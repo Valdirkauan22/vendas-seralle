@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Mic, MicOff, AlertCircle, Check, Sparkles, X, Edit3, Volume2, HelpCircle } from "lucide-react";
+import { Mic, MicOff, AlertCircle, Check, Sparkles, X, Volume2, Loader2, RefreshCw, Settings, Square, ArrowRight } from "lucide-react";
 import { parseValorMonetario, converterExtensoParaNumero } from "@/utils/formatters";
+import { getApiUrl } from "@/utils/apiConfig";
 
 interface VoiceSaleInputModalProps {
   isOpen: boolean;
@@ -246,10 +247,14 @@ export function VoiceSaleInputModal({
   onParsedSale,
 }: VoiceSaleInputModalProps) {
   const [isListening, setIsListening] = useState(false);
+  const [isProcessingAudio, setIsProcessingAudio] = useState(false);
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string>("Toque no microfone para começar");
   const [speechSupported, setSpeechSupported] = useState(true);
+  const [audioVolume, setAudioVolume] = useState<number>(0);
+  const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
 
   // Editable parsed fields
   const [valorInput, setValorInput] = useState("");
@@ -259,6 +264,14 @@ export function VoiceSaleInputModal({
   const [descricaoInput, setDescricaoInput] = useState("");
 
   const recognitionRef = useRef<any>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const transcriptCaughtRef = useRef<boolean>(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const timerIntervalRef = useRef<any>(null);
+  const isListeningRef = useRef<boolean>(false);
 
   // Check speech recognition support once on mount/open
   useEffect(() => {
@@ -266,36 +279,82 @@ export function VoiceSaleInputModal({
       const SpeechRecognition =
         (window as any).SpeechRecognition ||
         (window as any).webkitSpeechRecognition;
-      setSpeechSupported(!!SpeechRecognition);
+      setSpeechSupported(!!SpeechRecognition || !!navigator?.mediaDevices?.getUserMedia);
     }
   }, []);
 
   // Reset states on modal open / close
   useEffect(() => {
     if (!isOpen) {
-      stopListening();
+      cleanupListening();
       setTranscript("");
       setErrorMsg(null);
+      setPermissionDenied(false);
       setValorInput("");
       setParesInput("1");
       setAgregadosInput("0");
       setCategoriaInput("Feminino");
       setDescricaoInput("");
       setStatusMsg("Toque no microfone para começar");
+      setIsProcessingAudio(false);
+      setAudioVolume(0);
+      setRecordingSeconds(0);
       return;
     }
 
-    // When opened, do NOT auto-start to avoid browser security policy rejections!
-    // Instead, prompt the user with a friendly invitation to tap.
     setStatusMsg("Clique no botão do microfone e fale a venda.");
   }, [isOpen]);
 
-  // Clean up recognition instance when unmounting
+  // Clean up recognition and stream when unmounting
   useEffect(() => {
     return () => {
-      stopListening();
+      cleanupListening();
     };
   }, []);
+
+  const cleanupAudioAnalyser = () => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close();
+      } catch (e) {}
+      audioContextRef.current = null;
+    }
+    setAudioVolume(0);
+  };
+
+  const cleanupListening = () => {
+    isListeningRef.current = false;
+    setIsListening(false);
+
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+
+    cleanupAudioAnalyser();
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch (err) {}
+      recognitionRef.current = null;
+    }
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (err) {}
+    }
+
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((track) => track.stop());
+      audioStreamRef.current = null;
+    }
+  };
 
   // Update parsed inputs whenever new transcript text is processed
   const applyParsedText = (text: string) => {
@@ -307,106 +366,293 @@ export function VoiceSaleInputModal({
     if (parsed.descricao) setDescricaoInput(parsed.descricao);
   };
 
-  const startListening = async () => {
-    setErrorMsg(null);
+  const processAudioWithGemini = async (audioBlob: Blob) => {
+    try {
+      setIsProcessingAudio(true);
+      setStatusMsg("Analisando áudio com Inteligência Artificial...");
 
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          const base64 = result.split(",")[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+      });
+      reader.readAsDataURL(audioBlob);
+
+      const audioBase64 = await base64Promise;
+      if (!audioBase64) {
+        throw new Error("Falha ao preparar gravação de áudio.");
+      }
+
+      const response = await fetch(getApiUrl("/api/transcribe-voice"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audioBase64,
+          mimeType: audioBlob.type || "audio/webm",
+        }),
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error || `Erro do servidor (${response.status})`);
+      }
+
+      const data = await response.json();
+
+      if (data.transcricao) {
+        setTranscript(data.transcricao);
+      }
+      if (data.valor && data.valor > 0) {
+        setValorInput(
+          Number(data.valor).toLocaleString("pt-BR", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })
+        );
+      }
+      if (data.pares !== undefined) setParesInput(String(data.pares || 1));
+      if (data.agregados !== undefined) setAgregadosInput(String(data.agregados || 0));
+      if (data.categoria) setCategoriaInput(data.categoria);
+      if (data.descricao) setDescricaoInput(data.descricao);
+
+      setStatusMsg("Venda identificada com sucesso!");
+      setErrorMsg(null);
+    } catch (err: any) {
+      console.warn("Erro no fallback Gemini:", err);
+      if (!transcript) {
+        setErrorMsg("Não foi possível transcrever automaticamente. Você pode digitar a venda no campo abaixo!");
+      }
+    } finally {
+      setIsProcessingAudio(false);
+    }
+  };
+
+  const startListening = async () => {
+    cleanupListening();
+    setErrorMsg(null);
+    setPermissionDenied(false);
+    transcriptCaughtRef.current = false;
+    audioChunksRef.current = [];
+    setRecordingSeconds(0);
+
+    // 1. Proactive getUserMedia permission request
+    let stream: MediaStream | null = null;
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioStreamRef.current = stream;
+      } catch (err: any) {
+        console.warn("Erro getUserMedia:", err);
+        if (
+          err.name === "NotAllowedError" ||
+          err.name === "PermissionDeniedError" ||
+          err.name === "SecurityError"
+        ) {
+          setIsListening(false);
+          isListeningRef.current = false;
+          setPermissionDenied(true);
+          setErrorMsg(
+            "Permissão de microfone negada. Veja o passo a passo abaixo para liberar no celular."
+          );
+          return;
+        }
+      }
+    }
+
+    if (!stream) {
+      setPermissionDenied(true);
+      setErrorMsg("Não foi possível acessar o microfone deste aparelho. Você pode digitar a venda abaixo.");
+      return;
+    }
+
+    isListeningRef.current = true;
+    setIsListening(true);
+    setStatusMsg("Ouvindo... Pode falar a venda!");
+
+    // Inicia contador de segundos de gravação
+    timerIntervalRef.current = setInterval(() => {
+      setRecordingSeconds((prev) => prev + 1);
+    }, 1000);
+
+    // 2. Conecta Web Audio API para detecção de volume e animação em tempo real
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        const audioCtx = new AudioContextClass();
+        audioContextRef.current = audioCtx;
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 128;
+        analyser.smoothingTimeConstant = 0.4;
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const sampleAudio = () => {
+          if (!isListeningRef.current) return;
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          const avg = sum / (dataArray.length || 1);
+          // Normaliza de 0 a 100 com amplificação para vozes mais suaves
+          const vol = Math.min(100, Math.round((avg / 128) * 160));
+          setAudioVolume(vol);
+          animFrameRef.current = requestAnimationFrame(sampleAudio);
+        };
+        animFrameRef.current = requestAnimationFrame(sampleAudio);
+      }
+    } catch (audioErr) {
+      console.warn("AudioContext visualizer notice:", audioErr);
+    }
+
+    // 3. Inicializa MediaRecorder com detecção automática de mimeType suportado
+    try {
+      let mimeType = "";
+      if (typeof MediaRecorder !== "undefined") {
+        const candidateTypes = [
+          "audio/webm;codecs=opus",
+          "audio/webm",
+          "audio/mp4",
+          "audio/aac",
+          "audio/ogg",
+        ];
+        for (const type of candidateTypes) {
+          if (MediaRecorder.isTypeSupported(type)) {
+            mimeType = type;
+            break;
+          }
+        }
+
+        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        audioChunksRef.current = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) {
+            audioChunksRef.current.push(e.data);
+          }
+        };
+
+        recorder.onstop = () => {
+          // Limpa tracks do microfone após a finalização da gravação
+          if (audioStreamRef.current) {
+            audioStreamRef.current.getTracks().forEach((t) => t.stop());
+            audioStreamRef.current = null;
+          }
+
+          if (audioChunksRef.current.length > 0) {
+            const finalBlob = new Blob(audioChunksRef.current, {
+              type: mimeType || "audio/webm",
+            });
+
+            // Se o Web Speech já obteve um valor monetário válido (> 0), aproveitamos o resultado
+            const existingVal = parseValorMonetario(valorInput);
+            if (existingVal > 0 && transcriptCaughtRef.current) {
+              setStatusMsg("Venda identificada com sucesso!");
+            } else if (finalBlob.size > 200) {
+              // Caso contrário, enviamos o áudio para o Gemini processar
+              processAudioWithGemini(finalBlob);
+            }
+          }
+        };
+
+        mediaRecorderRef.current = recorder;
+        recorder.start(100);
+      }
+    } catch (recErr) {
+      console.warn("MediaRecorder falhou:", recErr);
+    }
+
+    // 4. Inicia Web Speech API (se suportada no navegador)
     const SpeechRecognition =
       (window as any).SpeechRecognition ||
       (window as any).webkitSpeechRecognition;
 
-    if (!SpeechRecognition) {
-      setErrorMsg(
-        "Seu navegador não possui suporte ao microfone Web Speech. Você pode digitar a venda diretamente no campo abaixo!"
-      );
-      setSpeechSupported(false);
-      return;
-    }
-
-    // Stop any existing instance
-    if (recognitionRef.current) {
+    if (SpeechRecognition) {
       try {
-        recognitionRef.current.abort();
-      } catch (e) {}
-      recognitionRef.current = null;
-    }
+        const recognition = new SpeechRecognition();
+        recognition.lang = "pt-BR";
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
 
-    try {
-      // Create a brand-new instance for every recognition cycle
-      const recognition = new SpeechRecognition();
-      recognition.lang = "pt-BR";
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
+        recognition.onresult = (event: any) => {
+          let finalStr = "";
+          let interimStr = "";
 
-      recognition.onstart = () => {
-        setIsListening(true);
-        setStatusMsg("Ouvindo... Pode falar agora!");
-        setErrorMsg(null);
-      };
-
-      recognition.onresult = (event: any) => {
-        let finalStr = "";
-        let interimStr = "";
-
-        for (let i = 0; i < event.results.length; i++) {
-          const res = event.results[i];
-          if (res.isFinal) {
-            finalStr += res[0].transcript + " ";
-          } else {
-            interimStr += res[0].transcript;
+          for (let i = 0; i < event.results.length; i++) {
+            const res = event.results[i];
+            if (res.isFinal) {
+              finalStr += res[0].transcript + " ";
+            } else {
+              interimStr += res[0].transcript;
+            }
           }
-        }
 
-        const fullCurrentText = (finalStr + interimStr).trim();
-        setTranscript(fullCurrentText);
-        applyParsedText(fullCurrentText);
-      };
+          const fullCurrentText = (finalStr + interimStr).trim();
+          if (fullCurrentText.length > 2) {
+            transcriptCaughtRef.current = true;
+            setTranscript(fullCurrentText);
+            applyParsedText(fullCurrentText);
+          }
+        };
 
-      recognition.onerror = (event: any) => {
-        console.warn("Speech recognition error:", event.error);
-        setIsListening(false);
+        recognition.onerror = (event: any) => {
+          console.warn("Speech recognition notice:", event.error);
+        };
 
-        if (event.error === "no-speech") {
-          setStatusMsg("Nenhuma voz foi detectada. Tente novamente falando perto do aparelho.");
-        } else if (event.error === "not-allowed") {
-          setErrorMsg(
-            "Permissão de microfone negada. Verifique as permissões no cadeado da barra do navegador ou digite a venda abaixo."
-          );
-        } else if (event.error === "audio-capture") {
-          setErrorMsg("Nenhum microfone encontrado neste dispositivo.");
-        } else if (event.error === "network") {
-          setErrorMsg(
-            "Erro de conexão com o serviço de voz do navegador. Você pode digitar a venda no campo abaixo."
-          );
-        } else if (event.error !== "aborted") {
-          setErrorMsg(`Aviso do microfone: ${event.error}. Você pode digitar a frase abaixo.`);
-        }
-      };
+        recognition.onend = () => {
+          // Se o usuário ainda não tocou em parar, mantemos o MediaRecorder ativo
+          if (isListeningRef.current && mediaRecorderRef.current?.state === "recording") {
+            // Continua gravando via MediaRecorder
+          }
+        };
 
-      recognition.onend = () => {
-        setIsListening(false);
-        setStatusMsg("Gravação finalizada. Confira os dados identificados abaixo.");
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (err: any) {
-      console.error("Failed to start speech recognition:", err);
-      setIsListening(false);
-      setErrorMsg(
-        "Não foi possível iniciar o microfone. Você pode digitar os dados da venda diretamente no campo abaixo."
-      );
+        recognitionRef.current = recognition;
+        recognition.start();
+      } catch (speechErr) {
+        console.warn("SpeechRecognition.start() falhou:", speechErr);
+      }
     }
   };
 
   const stopListening = () => {
+    isListeningRef.current = false;
+    setIsListening(false);
+
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+
+    cleanupAudioAnalyser();
+
+    // Para SpeechRecognition
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
       } catch (err) {}
       recognitionRef.current = null;
     }
-    setIsListening(false);
+
+    // Para MediaRecorder (o evento onstop cuidará de enviar para o Gemini e fechar os tracks)
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (err) {}
+    } else {
+      // Caso o MediaRecorder não estivesse gravando, fecha os tracks
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach((track) => track.stop());
+        audioStreamRef.current = null;
+      }
+    }
+
+    setStatusMsg("Processando venda capturada...");
   };
 
   const handleManualTranscriptChange = (text: string) => {
@@ -418,6 +664,7 @@ export function VoiceSaleInputModal({
     setTranscript(sample);
     applyParsedText(sample);
     setErrorMsg(null);
+    setPermissionDenied(false);
   };
 
   const handleConfirm = () => {
@@ -471,35 +718,82 @@ export function VoiceSaleInputModal({
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
           {/* Microphone Central Action */}
           <div className="flex flex-col items-center justify-center py-2 text-center">
-            <div className="relative">
-              {isListening && (
-                <div className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-30" />
-              )}
-              <button
-                type="button"
-                onClick={isListening ? stopListening : startListening}
-                className={`relative w-20 h-20 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-lg active:scale-95 ${
-                  isListening
-                    ? "bg-red-500 text-white ring-8 ring-red-100 animate-pulse"
-                    : "bg-blue-700 text-white hover:bg-blue-800 ring-4 ring-blue-100"
-                }`}
-                title={isListening ? "Clique para pausar" : "Clique para falar"}
-              >
-                {isListening ? (
-                  <Mic className="w-9 h-9" />
-                ) : (
-                  <Mic className="w-9 h-9" />
-                )}
-              </button>
-            </div>
+            {isProcessingAudio ? (
+              <div className="flex flex-col items-center gap-2.5 py-3">
+                <div className="w-16 h-16 rounded-full bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shadow-inner">
+                  <Loader2 className="w-8 h-8 animate-spin" />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-xs font-bold text-indigo-900">{statusMsg}</p>
+                  <p className="text-[10px] text-slate-500">Aguarde alguns instantes...</p>
+                </div>
+              </div>
+            ) : isListening ? (
+              <div className="flex flex-col items-center gap-2 w-full py-1">
+                {/* Visualizador de Ondas de Som em Tempo Real */}
+                <div className="flex items-center justify-center gap-1.5 h-12">
+                  {[0.5, 0.8, 1.2, 1.6, 1.2, 0.8, 0.5].map((mult, idx) => {
+                    const h = Math.max(6, Math.min(42, Math.round(audioVolume * mult * 0.45) + (idx === 3 ? 10 : 4)));
+                    return (
+                      <div
+                        key={idx}
+                        className={`w-2 rounded-full transition-all duration-75 ${
+                          audioVolume > 10 ? "bg-emerald-500 shadow-xs" : "bg-slate-300"
+                        }`}
+                        style={{ height: `${h}px` }}
+                      />
+                    );
+                  })}
+                </div>
 
-            <p className="mt-3 text-xs font-bold text-slate-800">
-              {statusMsg}
-            </p>
+                {/* Indicador de Nível de Captação */}
+                <div className="flex items-center justify-center mt-1">
+                  {audioVolume > 10 ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 shadow-2xs">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                      Captando sua voz (Nível: {audioVolume}%)
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600">
+                      Ouvindo microfone... Fale perto do aparelho
+                    </span>
+                  )}
+                </div>
 
-            <span className="text-[11px] text-slate-500 max-w-xs mt-0.5">
-              Ex: <em>"Cento e noventa e nove reais, um par feminino e uma meia"</em>
-            </span>
+                <p className="text-xs font-bold text-slate-800 mt-1">
+                  {statusMsg}
+                </p>
+
+                {/* Botão de Concluir Gravação com Contador de Segundos */}
+                <button
+                  type="button"
+                  onClick={stopListening}
+                  className="mt-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-red-500/25 active:scale-95 transition-all cursor-pointer animate-pulse"
+                >
+                  <Square className="w-4 h-4 fill-white" />
+                  <span>Concluir Gravação ({String(recordingSeconds).padStart(2, "0")}s)</span>
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center">
+                <button
+                  type="button"
+                  onClick={startListening}
+                  className="w-20 h-20 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-lg active:scale-95 bg-blue-700 text-white hover:bg-blue-800 ring-4 ring-blue-100"
+                  title="Clique para falar a venda"
+                >
+                  <Mic className="w-9 h-9" />
+                </button>
+
+                <p className="mt-3 text-xs font-bold text-slate-800">
+                  {statusMsg}
+                </p>
+
+                <span className="text-[11px] text-slate-500 max-w-xs mt-0.5">
+                  Ex: <em>"Cento e noventa e nove reais, um par feminino e uma meia"</em>
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Transcript / Input text box */}
@@ -509,17 +803,19 @@ export function VoiceSaleInputModal({
                 <Volume2 className="w-3.5 h-3.5 text-blue-600" />
                 Texto capturado / Digitação rápida:
               </label>
-              {transcript && (
-                <button
-                  type="button"
-                  onClick={() => handleManualTranscriptChange("")}
-                  className="text-[11px] text-slate-400 hover:text-slate-600 cursor-pointer"
-                >
-                  Limpar
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {transcript && (
+                  <button
+                    type="button"
+                    onClick={() => handleManualTranscriptChange("")}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="relative">
+            <div className="relative flex items-center gap-1.5">
               <input
                 type="text"
                 value={transcript}
@@ -527,6 +823,17 @@ export function VoiceSaleInputModal({
                 placeholder="Ou digite aqui (ex: 250 tênis masculino 1 par e 1 meia)..."
                 className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600"
               />
+              {transcript.trim() && (
+                <button
+                  type="button"
+                  onClick={() => applyParsedText(transcript)}
+                  title="Analisar texto digitado e preencher campos"
+                  className="shrink-0 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Preencher</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -700,8 +1007,36 @@ export function VoiceSaleInputModal({
             </div>
           </div>
 
+          {/* Android Permission Guide */}
+          {permissionDenied && (
+            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl space-y-2.5 text-xs text-amber-900">
+              <div className="flex items-center gap-2 font-bold text-amber-800">
+                <Settings className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Como liberar o microfone no celular:</span>
+              </div>
+              <ol className="list-decimal list-inside space-y-1 text-[11px] text-amber-800/90 pl-1 leading-relaxed">
+                <li>Abra as <strong>Configurações</strong> do seu celular Android.</li>
+                <li>Toque em <strong>Aplicativos</strong> e selecione o <strong>Serallê Vendas</strong>.</li>
+                <li>Toque em <strong>Permissões</strong> &gt; <strong>Microfone</strong> e escolha <strong>"Permitir durante o uso do app"</strong>.</li>
+              </ol>
+              <div className="pt-1 flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={startListening}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Tentar Novamente</span>
+                </button>
+                <span className="text-[10px] text-amber-700">
+                  Ou digite os dados no campo acima.
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Error Message */}
-          {errorMsg && (
+          {errorMsg && !permissionDenied && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 text-xs text-red-700">
               <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
               <span>{errorMsg}</span>
