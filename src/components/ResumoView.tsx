@@ -25,6 +25,7 @@ import {
   Mic,
   Sliders,
   Flame,
+  Store,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { useVendas } from "@/context/VendasContext";
@@ -128,6 +129,13 @@ export function ResumoView({ mesId, onOpenDia, onOpenMetas, onOpenLembretes }: R
   const valorDsrEstimado = diasUteis > 0 ? (valorComissaoBase / diasUteis) * domingosFeriados : 0;
 
   const totalGanhosEstimados = valorComissaoBase + valorPremioCota + valorDsrEstimado;
+
+  // Store meta vs Individual contribution
+  const metaLojaValor = configMes.metaLojaValor || 250000;
+  const metaLojaPares = configMes.metaLojaPares || 1800;
+  const pctMinhaContribuicaoValor = metaLojaValor > 0 ? (totalMes.valor / metaLojaValor) * 100 : 0;
+  const pctMinhaContribuicaoPares = metaLojaPares > 0 ? (totalMes.pares / metaLojaPares) * 100 : 0;
+  const paMedioMes = totalMes.paMedio > 0 ? totalMes.paMedio : (totalMes.qtdVendas > 0 ? totalMes.pares / totalMes.qtdVendas : 0);
 
   // Trigger celebration confetti once when hitting high tier goals
   useEffect(() => {
@@ -658,6 +666,74 @@ _Enviado pelo Diário de Vendas Serallê_`;
               )}
             </div>
           )}
+
+          {/* Store Meta vs Individual Vendedora Contribution */}
+          <div className="mt-5 pt-5 border-t border-slate-100">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-700 shrink-0">
+                  <Store className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900">
+                    Meta Geral da Loja vs. Sua Contribuição
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Acompanhe a sua participação no faturamento e pares globais da filial
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={onOpenMetas}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100/80 px-2.5 py-1.5 rounded-lg transition-colors self-start sm:self-auto cursor-pointer"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                Configurar Metas da Loja
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Contribuição em Faturamento */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
+                <div className="flex items-center justify-between mb-1.5 text-xs">
+                  <span className="font-semibold text-slate-600">Meta Loja (Faturamento):</span>
+                  <span className="font-bold text-slate-900">{formatMoeda(metaLojaValor)}</span>
+                </div>
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden mb-2">
+                  <div
+                    className="bg-indigo-600 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(pctMinhaContribuicaoValor, 100)}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500">Sua contribuição individual:</span>
+                  <span className="font-bold text-indigo-700">
+                    {formatMoeda(totalMes.valor)} ({pctMinhaContribuicaoValor.toFixed(1)}%)
+                  </span>
+                </div>
+              </div>
+
+              {/* Contribuição em Pares */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
+                <div className="flex items-center justify-between mb-1.5 text-xs">
+                  <span className="font-semibold text-slate-600">Meta Loja (Pares de Calçados):</span>
+                  <span className="font-bold text-slate-900">{metaLojaPares} pares</span>
+                </div>
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden mb-2">
+                  <div
+                    className="bg-purple-600 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(pctMinhaContribuicaoPares, 100)}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500">Sua contribuição individual:</span>
+                  <span className="font-bold text-purple-700">
+                    {totalMes.pares} pares ({pctMinhaContribuicaoPares.toFixed(1)}%)
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* ─── Two-Column: Vendas de Hoje & Projeções ─────────────────────── */}
@@ -805,10 +881,6 @@ _Enviado pelo Diário de Vendas Serallê_`;
                   </div>
                 </div>
               </div>
-            </div>
-
-            <div className="pt-2 text-[11px] text-slate-400">
-              Dica: Registre suas folgas no calendário para calibrar o ritmo dos dias restantes.
             </div>
           </div>
         </div>

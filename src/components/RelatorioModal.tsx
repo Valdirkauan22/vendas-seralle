@@ -11,10 +11,11 @@ import {
   FileSpreadsheet,
   Coins,
 } from "lucide-react";
-import * as XLSX from "xlsx";
 import { LogoSeralle } from "@/components/LogoSeralle";
 import { useProfile } from "@/context/ProfileContext";
 import { useVendas } from "@/context/VendasContext";
+import { useAuth } from "@/context/AuthContext";
+import { LOJAS_SERALLE } from "@/data/lojasSeralle";
 import {
   formatMoeda,
   mesAnoExtenso,
@@ -29,6 +30,7 @@ interface RelatorioModalProps {
 
 export function RelatorioModal({ mesId, onClose }: RelatorioModalProps) {
   const { perfilAtivo } = useProfile();
+  const { userProfile, user } = useAuth();
   const { getTotalMes, getConfigMes, dias } = useVendas();
 
   const [copiedWhatsapp, setCopiedWhatsapp] = useState(false);
@@ -36,8 +38,18 @@ export function RelatorioModal({ mesId, onClose }: RelatorioModalProps) {
   const totalMes = getTotalMes(mesId);
   const configMes = getConfigMes(mesId);
 
+  const nomeVendedora = userProfile?.displayName || user?.displayName || perfilAtivo?.nome || "Vendedora Serallê";
+  const lojaNome = userProfile?.loja || "Loja Cianorte";
+  const lojaObj = LOJAS_SERALLE.find((l) => l.nome === lojaNome || l.cidade.toLowerCase() === lojaNome.toLowerCase());
+  const lojaEndereco = userProfile?.lojaEndereco || lojaObj?.endereco || "550 Avenida Souza Naves, Cianorte, PR";
+  const lojaCep = userProfile?.lojaCep || lojaObj?.cep || "87200-252";
+  const cargo = userProfile?.cargo || "Vendedora de Calçados";
+
   const ticketMedioPar = totalMes.pares > 0 ? totalMes.valor / totalMes.pares : 0;
   const ticketMedioVenda = totalMes.qtdVendas > 0 ? totalMes.valor / totalMes.qtdVendas : 0;
+  const paMedio = totalMes.paMedio > 0 
+    ? totalMes.paMedio 
+    : (totalMes.qtdVendas > 0 ? totalMes.pares / totalMes.qtdVendas : 0);
 
   // Filter and sort days with sales
   const diasDoMes = Object.entries(dias)
@@ -69,50 +81,81 @@ export function RelatorioModal({ mesId, onClose }: RelatorioModalProps) {
   };
 
   const handleExportExcel = () => {
-    const rows = diasDoMes.map(([dStr, dData]) => {
+    const headers = [
+      "Data",
+      "Valor (R$)",
+      "Pares Vendidos",
+      "Ticket Médio / Par (R$)",
+      "Margem (%)",
+      "Qtd de Vendas",
+      "Categorias / Calçados",
+    ];
+
+    const lines = [headers.join(";")];
+
+    diasDoMes.forEach(([dStr, dData]) => {
       const val = dData.itens.reduce((a, b) => a + b.valor, 0);
       const par = dData.itens.reduce((a, b) => a + b.pares, 0);
-      return {
-        Data: dStr,
-        "Valor (R$)": val,
-        "Pares Vendidos": par,
-        "Ticket Médio / Par (R$)": par > 0 ? (val / par).toFixed(2) : 0,
-        "Margem (%)": dData.margem || 0,
-        "Qtd de Vendas": dData.itens.length,
-        "Categorias / Calçados": dData.itens.map((i) => i.categoria || "Geral").join(", "),
-      };
+      const ticketPar = par > 0 ? (val / par).toFixed(2) : "0,00";
+      const margem = (dData.margem || 0).toFixed(2);
+      const categorias = dData.itens.map((i) => i.categoria || "Geral").join(", ");
+
+      lines.push(
+        [
+          dStr,
+          val.toFixed(2).replace(".", ","),
+          par,
+          ticketPar.replace(".", ","),
+          margem.replace(".", ","),
+          dData.itens.length,
+          `"${categorias.replace(/"/g, '""')}"`,
+        ].join(";")
+      );
     });
 
-    // Add summary row
-    rows.push({
-      Data: "TOTAL",
-      "Valor (R$)": totalMes.valor,
-      "Pares Vendidos": totalMes.pares,
-      "Ticket Médio / Par (R$)": Number(ticketMedioPar.toFixed(2)),
-      "Margem (%)": Number(totalMes.margem.toFixed(2)),
-      "Qtd de Vendas": totalMes.qtdVendas,
-      "Categorias / Calçados": "-",
-    });
-
-    const worksheet = XLSX.utils.json_to_sheet(rows);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Vendas");
-
-    XLSX.writeFile(
-      workbook,
-      `vendas-seralle-${mesId}-${perfilAtivo?.nome || "vendedora"}.xlsx`
+    // Summary row
+    lines.push(
+      [
+        "TOTAL",
+        totalMes.valor.toFixed(2).replace(".", ","),
+        totalMes.pares,
+        ticketMedioPar.toFixed(2).replace(".", ","),
+        totalMes.margem.toFixed(2).replace(".", ","),
+        totalMes.qtdVendas,
+        "-",
+      ].join(";")
     );
+
+    const csvContent = "\uFEFF" + lines.join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute(
+      "download",
+      `vendas-seralle-${mesId}-${(perfilAtivo?.nome || "vendedora").toLowerCase().replace(/\s+/g, "_")}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleCopiarWhatsApp = () => {
-    let msg = `*📊 RELATÓRIO DE VENDAS SERALLÊ CALÇADOS*\n`;
-    msg += `👤 *Vendedora:* ${perfilAtivo?.nome || "Vendedora"}\n`;
+    let msg = `*📊 RELATÓRIO OFICIAL DE VENDAS — SERALLÊ CALÇADOS*\n`;
+    msg += `🏬 *Filial:* ${lojaNome}\n`;
+    if (lojaEndereco) {
+      msg += `📍 *Endereço:* ${lojaEndereco} (CEP: ${lojaCep})\n`;
+    }
+    msg += `👤 *Vendedora:* ${nomeVendedora} · ${cargo}\n`;
     msg += `📅 *Período:* ${mesAnoExtenso(mesId)}\n\n`;
 
     msg += `*📈 RESULTADOS DO MÊS:*\n`;
     msg += `• *Total em Vendas:* ${formatMoeda(totalMes.valor)}\n`;
     msg += `• *Pares Vendidos:* ${totalMes.pares} pares\n`;
-    msg += `• *Ticket Médio:* ${formatMoeda(ticketMedioPar)} / par\n`;
+    msg += `• *P.A. Médio:* ${paMedio.toFixed(2)} peças/atend.\n`;
+    msg += `• *Ticket Médio / Venda:* ${formatMoeda(ticketMedioVenda)}\n`;
+    msg += `• *Ticket Médio / Par:* ${formatMoeda(ticketMedioPar)}\n`;
     if (totalMes.margem > 0) {
       msg += `• *Margem Média:* ${totalMes.margem.toFixed(1)}%\n`;
     }
@@ -128,6 +171,30 @@ export function RelatorioModal({ mesId, onClose }: RelatorioModalProps) {
     navigator.clipboard.writeText(msg);
     setCopiedWhatsapp(true);
     setTimeout(() => setCopiedWhatsapp(false), 2500);
+  };
+
+  const handleAbrirWhatsApp = () => {
+    let msg = `*📊 RELATÓRIO OFICIAL DE VENDAS — SERALLÊ CALÇADOS*\n`;
+    msg += `🏬 *Filial:* ${lojaNome}\n`;
+    if (lojaEndereco) {
+      msg += `📍 *Endereço:* ${lojaEndereco} (CEP: ${lojaCep})\n`;
+    }
+    msg += `👤 *Vendedora:* ${nomeVendedora} · ${cargo}\n`;
+    msg += `📅 *Período:* ${mesAnoExtenso(mesId)}\n\n`;
+    msg += `*📈 RESULTADOS DO MÊS:*\n`;
+    msg += `• *Total em Vendas:* ${formatMoeda(totalMes.valor)}\n`;
+    msg += `• *Pares Vendidos:* ${totalMes.pares} pares\n`;
+    msg += `• *P.A. Médio:* ${paMedio.toFixed(2)} peças/atend.\n`;
+    msg += `• *Ticket Médio / Venda:* ${formatMoeda(ticketMedioVenda)}\n`;
+    msg += `• *Ganhos Estimados:* ${formatMoeda(ganhosTotais)}\n\n`;
+    msg += `*🎯 STATUS DAS METAS:*\n`;
+    cotas.forEach((c) => {
+      const statusIcon = c.atingiu ? "✅" : "⏳";
+      msg += `${statusIcon} *${c.label}:* ${formatMoeda(c.valor)} - ${c.pct}%\n`;
+    });
+
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+    window.open(url, "_blank");
   };
 
   return (
@@ -165,10 +232,15 @@ export function RelatorioModal({ mesId, onClose }: RelatorioModalProps) {
           <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b-2 border-slate-200">
             <div className="flex items-center gap-3">
               <LogoSeralle size="md" />
-              <div className="border-l border-slate-200 pl-3 hidden sm:block">
-                <p className="text-xs font-semibold text-slate-500">
-                  Diário Oficial de Vendas & Metas
+              <div className="border-l border-slate-200 pl-3">
+                <p className="text-xs font-extrabold text-slate-800">
+                  {lojaNome} · Serallê Calçados
                 </p>
+                {lojaEndereco && (
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    {lojaEndereco} — CEP: {lojaCep}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -176,46 +248,66 @@ export function RelatorioModal({ mesId, onClose }: RelatorioModalProps) {
               <p className="font-extrabold text-slate-800 uppercase">
                 Período: {mesAnoExtenso(mesId)}
               </p>
-              <p className="text-slate-500">
-                Vendedora: <span className="font-bold text-slate-700">{perfilAtivo?.nome}</span>
+              <p className="text-slate-600 font-medium">
+                Vendedora: <strong className="text-slate-900">{nomeVendedora}</strong> ({cargo})
               </p>
             </div>
           </div>
 
           {/* Month Summary Numbers */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
               <span className="text-[10px] font-bold uppercase text-slate-400">
                 Faturamento Total
               </span>
-              <p className="text-xl font-black text-slate-900 mt-0.5">
+              <p className="text-lg font-black text-slate-900 mt-0.5">
                 {formatMoeda(totalMes.valor)}
               </p>
             </div>
 
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
               <span className="text-[10px] font-bold uppercase text-slate-400">
                 Pares Vendidos
               </span>
-              <p className="text-xl font-black text-slate-900 mt-0.5">
+              <p className="text-lg font-black text-slate-900 mt-0.5">
                 {totalMes.pares} <span className="text-xs font-semibold">pares</span>
               </p>
             </div>
 
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-              <span className="text-[10px] font-bold uppercase text-slate-400">
-                Estimativa de Ganhos
+            <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl">
+              <span className="text-[10px] font-bold uppercase text-sky-700">
+                P.A. Médio
               </span>
-              <p className="text-xl font-black text-emerald-800 mt-0.5">
+              <p className="text-lg font-black text-[#0082D7] mt-0.5">
+                {paMedio.toFixed(2)}
+              </p>
+              <span className="text-[9px] text-sky-600 block">peças / atendimento</span>
+            </div>
+
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+              <span className="text-[10px] font-bold uppercase text-slate-400">
+                Ticket Médio
+              </span>
+              <p className="text-lg font-black text-slate-900 mt-0.5">
+                {formatMoeda(ticketMedioVenda)}
+              </p>
+              <span className="text-[9px] text-slate-500 block">por venda</span>
+            </div>
+
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <span className="text-[10px] font-bold uppercase text-emerald-800">
+                Ganhos Estimados
+              </span>
+              <p className="text-lg font-black text-emerald-800 mt-0.5">
                 {formatMoeda(ganhosTotais)}
               </p>
             </div>
 
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
               <span className="text-[10px] font-bold uppercase text-slate-400">
                 Margem Ponderada
               </span>
-              <p className="text-xl font-black text-slate-900 mt-0.5">
+              <p className="text-lg font-black text-slate-900 mt-0.5">
                 {totalMes.margem > 0 ? `${totalMes.margem.toFixed(1)}%` : "—"}
               </p>
             </div>
@@ -351,16 +443,25 @@ export function RelatorioModal({ mesId, onClose }: RelatorioModalProps) {
               className="flex items-center gap-1.5 px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              <span>Exportar Excel (XLSX)</span>
+              <span>Exportar Planilha (CSV)</span>
             </button>
 
             <button
               type="button"
               onClick={handleCopiarWhatsApp}
-              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
+              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors shadow-xs cursor-pointer"
             >
               {copiedWhatsapp ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
               <span>{copiedWhatsapp ? "Copiado!" : "Copiar p/ WhatsApp"}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleAbrirWhatsApp}
+              className="flex items-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-xl transition-colors shadow-xs cursor-pointer"
+            >
+              <Share2 className="w-4 h-4" />
+              <span>Abrir no WhatsApp</span>
             </button>
           </div>
 

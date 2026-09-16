@@ -10,6 +10,7 @@ import {
   Layers,
   Calendar,
   Sparkles,
+  Store,
 } from "lucide-react";
 import { useVendas, CONFIG_MES_PADRAO } from "@/context/VendasContext";
 import { ConfigMes } from "@/types";
@@ -47,6 +48,11 @@ export function MetasModal({ mesId, onClose }: MetasModalProps) {
   );
   const [cotaAltaPares, setCotaAltaPares] = useState(String(currentConfig.cotaAlta.pares || 550));
   const [cotaAltaPremio, setCotaAltaPremio] = useState(String(currentConfig.cotaAlta.premio ?? 800));
+
+  const [metaLojaValor, setMetaLojaValor] = useState(
+    currentConfig.metaLojaValor ? currentConfig.metaLojaValor.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) : "250.000,00"
+  );
+  const [metaLojaPares, setMetaLojaPares] = useState(String(currentConfig.metaLojaPares || 1800));
 
   const [comissaoPct, setComissaoPct] = useState(String(currentConfig.comissaoPadraoPct ?? 2.5));
   const [metaPa, setMetaPa] = useState(String(currentConfig.metaPa ?? 1.5));
@@ -88,6 +94,8 @@ export function MetasModal({ mesId, onClose }: MetasModalProps) {
     setCotaAltaPremio(String(CONFIG_MES_PADRAO.cotaAlta.premio || 800));
 
     setComissaoPct(String(CONFIG_MES_PADRAO.comissaoPadraoPct || 2.5));
+    setMetaLojaValor(CONFIG_MES_PADRAO.metaLojaValor ? CONFIG_MES_PADRAO.metaLojaValor.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) : "250.000,00");
+    setMetaLojaPares(String(CONFIG_MES_PADRAO.metaLojaPares || 1800));
     setMetaPa("1.5");
     setDiasUteis("25");
     setDomingosFeriados("5");
@@ -121,6 +129,8 @@ export function MetasModal({ mesId, onClose }: MetasModalProps) {
         margem: 0,
         premio: parseFloat(cotaAltaPremio) || 0,
       },
+      metaLojaValor: parseValorMonetario(metaLojaValor),
+      metaLojaPares: parseInt(metaLojaPares, 10) || 0,
       comissaoPadraoPct: parseFloat(comissaoPct.replace(",", ".")) || 2.5,
       metaPa: parseFloat(metaPa.replace(",", ".")) || 1.5,
       diasUteisMes: parseInt(diasUteis, 10) || 25,
@@ -226,6 +236,52 @@ export function MetasModal({ mesId, onClose }: MetasModalProps) {
                     className="w-1/2 px-2 py-2 text-xs font-bold text-slate-900 bg-white border border-slate-300 rounded-lg text-center focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
                   />
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Meta Global da Filial / Loja */}
+          <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 space-y-3">
+            <div className="flex items-center gap-2">
+              <Store className="w-4 h-4 text-amber-700" />
+              <div>
+                <h4 className="text-xs font-bold text-amber-950 uppercase tracking-wider">
+                  Meta Global da Filial Serallê (Mês)
+                </h4>
+                <p className="text-[11px] text-amber-800 font-medium">
+                  Acompanhe no painel quanto as suas vendas representam da meta da loja
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Meta de Faturamento da Loja (R$)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-400">R$</span>
+                  <input
+                    type="text"
+                    placeholder="250.000,00"
+                    value={metaLojaValor}
+                    onChange={handleCurrencyChange(setMetaLojaValor)}
+                    className="w-full pl-9 pr-3 py-2 text-xs font-bold text-slate-900 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Meta em Pares da Loja
+                </label>
+                <input
+                  type="number"
+                  placeholder="1800"
+                  value={metaLojaPares}
+                  onChange={(e) => setMetaLojaPares(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-bold text-slate-900 bg-white border border-slate-300 rounded-lg text-center focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                />
               </div>
             </div>
           </div>

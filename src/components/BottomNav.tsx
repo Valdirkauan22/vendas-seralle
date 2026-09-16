@@ -12,7 +12,6 @@ import {
   BookOpen,
   X,
   Sparkles,
-  Users,
   Bell,
   HardDrive,
 } from "lucide-react";
@@ -26,6 +25,7 @@ interface BottomNavProps {
   onOpenPerfis?: () => void;
   onOpenLembretes?: () => void;
   onOpenBackup?: () => void;
+  onOpenCadastro?: () => void;
 }
 
 export function BottomNav({
@@ -37,6 +37,7 @@ export function BottomNav({
   onOpenPerfis,
   onOpenLembretes,
   onOpenBackup,
+  onOpenCadastro,
 }: BottomNavProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -147,6 +148,29 @@ export function BottomNav({
                 </div>
               </button>
 
+              {onOpenCadastro && (
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onOpenCadastro();
+                  }}
+                  className="col-span-2 p-3 rounded-2xl border border-sky-300 bg-sky-50 hover:bg-sky-100/70 text-sky-950 text-left flex items-center justify-between gap-3 transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-[#0082D7] text-white flex items-center justify-center shadow-xs">
+                      <Store className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-extrabold leading-tight">Meu Cadastro & Filial Serallê</p>
+                      <p className="text-[10px] text-sky-800/80 font-medium">Informar unidade (ex: Cianorte) e nome</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white text-[#0082D7] border border-sky-200">
+                    Editar
+                  </span>
+                </button>
+              )}
+
               {onOpenBackup && (
                 <button
                   onClick={() => {
@@ -193,21 +217,6 @@ export function BottomNav({
                 </button>
               )}
             </div>
-
-            {onOpenPerfis && (
-              <div className="pt-2 border-t border-slate-100">
-                <button
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onOpenPerfis();
-                  }}
-                  className="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200/70 text-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-colors"
-                >
-                  <Users className="w-4 h-4 text-[#0082D7]" />
-                  <span>Gerenciar Vendedoras / Trocar Perfil</span>
-                </button>
-              </div>
-            )}
           </div>
         </div>
       )}

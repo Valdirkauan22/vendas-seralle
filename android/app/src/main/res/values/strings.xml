@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Diário de Vendas Serallê</string>
+    <string name="title_activity_main">Diário de Vendas Serallê</string>
+    <string name="package_name">com.seralle.vendas</string>
+    <string name="custom_url_scheme">com.seralle.vendas</string>
+</resources>

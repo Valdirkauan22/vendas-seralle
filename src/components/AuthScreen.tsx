@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react";
+import { Capacitor } from "@capacitor/core";
 import {
   Lock,
   Mail,
@@ -7,20 +8,20 @@ import {
   Eye,
   EyeOff,
   ArrowRight,
-  ShieldCheck,
   Sparkles,
   CheckCircle2,
   AlertCircle,
   KeyRound,
   RefreshCw,
-  Smartphone,
   Cloud,
   Upload,
   FileJson,
+  ChevronDown,
 } from "lucide-react";
 import { LogoSeralle } from "@/components/LogoSeralle";
 import { useAuth } from "@/context/AuthContext";
 import { useVendas } from "@/context/VendasContext";
+import { LOJAS_SERALLE } from "@/data/lojasSeralle";
 
 interface AuthScreenProps {
   onOpenMobileGuide?: () => void;
@@ -32,7 +33,7 @@ export function AuthScreen({ onOpenMobileGuide }: AuthScreenProps) {
 
   const [mode, setMode] = useState<"login" | "cadastro" | "recuperar" | "restaurar">("login");
   const [nome, setNome] = useState("");
-  const [loja, setLoja] = useState("Serallê Calçados");
+  const [loja, setLoja] = useState("Loja Cianorte");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [confirmarSenha, setConfirmarSenha] = useState("");
@@ -51,18 +52,32 @@ export function AuthScreen({ onOpenMobileGuide }: AuthScreenProps) {
     setErrorMessage(null);
     setSuccessMessage(null);
     setGoogleLoading(true);
+
     try {
       await entrarComGoogle();
     } catch (err: any) {
       console.error("Google Auth error:", err);
-      if (err.code === "auth/popup-closed-by-user") {
+      const msg = String(err?.message || "");
+      const code = String(err?.code || "");
+
+      if (code === "auth/popup-closed-by-user") {
         setErrorMessage("A janela do Google foi fechada antes de concluir o login.");
-      } else if (err.code === "auth/popup-blocked") {
-        setErrorMessage("O navegador bloqueou o pop-up do Google. Permita pop-ups para fazer login.");
-      } else if (err.code === "auth/account-exists-with-different-credential") {
+      } else if (code === "auth/popup-blocked") {
+        setErrorMessage("O pop-up do Google foi bloqueado. Autorize pop-ups ou tente novamente.");
+      } else if (code === "auth/account-exists-with-different-credential") {
         setErrorMessage("Já existe uma conta associada a este e-mail com outro método de acesso.");
+      } else if (code === "auth/operation-not-allowed" || msg.includes("operation-not-allowed")) {
+        setErrorMessage(
+          "O login com Google precisa ser ativado no Firebase Console (Authentication > Sign-in method > Google). Selecione o seu e-mail de suporte para habilitar."
+        );
+      } else if (msg.includes("invalid") || code === "auth/invalid-action-code" || msg.includes("action is invalid")) {
+        setErrorMessage(
+          "O Google requer ativação no Firebase Console: vá em Authentication > Sign-in method > Google, selecione seu e-mail de suporte e salve. Caso queira entrar agora, utilize E-mail e Senha ou o Modo Offline."
+        );
       } else {
-        setErrorMessage(err.message || "Não foi possível entrar com o Google. Tente com e-mail e senha ou no Modo Offline.");
+        setErrorMessage(
+          msg || "Não foi possível conectar com o Google no momento. Se preferir, use E-mail e Senha ou o Modo Offline."
+        );
       }
     } finally {
       setGoogleLoading(false);
@@ -429,14 +444,6 @@ export function AuthScreen({ onOpenMobileGuide }: AuthScreenProps) {
                   <span>Selecionar Arquivo de Backup</span>
                 </button>
               </div>
-
-              {/* Dica Google */}
-              <div className="p-3.5 rounded-2xl bg-sky-50 border border-sky-100 flex items-start gap-2.5 text-xs text-sky-900">
-                <Sparkles className="w-4 h-4 text-[#0082D7] shrink-0 mt-0.5" />
-                <p>
-                  <strong>Dica de Ouro:</strong> Se você conectou sua <strong>Conta Google</strong> no app anterior, basta voltar e clicar em <strong>"Entrar com Google"</strong> para trazer tudo de volta automaticamente!
-                </p>
-              </div>
             </div>
           ) : (
             <>
@@ -487,12 +494,6 @@ export function AuthScreen({ onOpenMobileGuide }: AuthScreenProps) {
                     )}
                   </button>
 
-                  <p className="text-[11px] text-center text-slate-500 mt-1.5 font-medium">
-                    {mode === "cadastro"
-                      ? "⚡ Crie sua conta em 1 clique com sua Conta Google"
-                      : "⚡ Acesse rapidamente usando sua Conta Google"}
-                  </p>
-
                   <div className="flex items-center my-4">
                     <div className="flex-1 border-t border-slate-200" />
                     <span className="px-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
@@ -527,17 +528,24 @@ export function AuthScreen({ onOpenMobileGuide }: AuthScreenProps) {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Loja / Filial Serallê
+                    Loja / Filial Serallê ({LOJAS_SERALLE.length} Unidades)
                   </label>
                   <div className="relative">
-                    <Store className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Ex: Serallê Maringá Centro"
+                    <Store className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" />
+                    <select
                       value={loja}
                       onChange={(e) => setLoja(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0082D7] focus:border-transparent transition-all"
-                    />
+                      className="w-full pl-10 pr-8 py-2.5 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0082D7] focus:border-transparent transition-all cursor-pointer appearance-none"
+                    >
+                      {LOJAS_SERALLE.map((l) => (
+                        <option key={l.id} value={l.nome}>
+                          {l.nome} — {l.cidade}, PR
+                        </option>
+                      ))}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
                   </div>
                 </div>
               </>
@@ -684,29 +692,7 @@ export function AuthScreen({ onOpenMobileGuide }: AuthScreenProps) {
               </button>
             </div>
           )}
-
-          {/* Data Privacy Guarantee Badge */}
-          <div className="mt-4 pt-3 border-t border-slate-100 flex items-start gap-2.5 text-[11px] text-slate-500">
-            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-            <p>
-              <strong className="text-slate-800">Privacidade Absoluta:</strong> Seus lançamentos de vendas, comissões e metas ficam protegidos em sua conta individual.
-            </p>
-          </div>
         </div>
-
-        {/* Mobile App QR Code quick access */}
-        {onOpenMobileGuide && (
-          <div className="mt-6 text-center">
-            <button
-              type="button"
-              onClick={onOpenMobileGuide}
-              className="inline-flex items-center gap-2 text-xs font-bold text-sky-200 hover:text-white bg-white/5 hover:bg-white/10 px-4 py-2 rounded-xl transition-all border border-white/10 backdrop-blur-xs cursor-pointer"
-            >
-              <Smartphone className="w-4 h-4 text-amber-300" />
-              <span>Como instalar no Celular (Android / iPhone)</span>
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

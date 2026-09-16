@@ -8,7 +8,9 @@ on:
     paths:
       - "src/**"
       - "public/**"
+      - "android/**"
       - "package.json"
+      - "package-lock.json"
       - "capacitor.config.ts"
       - ".github/workflows/android-apk.yml"
 
@@ -33,35 +35,43 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: "npm"
 
-      - name: Configurar Java
+      - name: Configurar Java JDK
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: "temurin"
           java-version: "21"
 
-      - name: Instalar dependencias
-        run: npm install --legacy-peer-deps
+      - name: Instalar dependencias rigorosas (npm ci)
+        run: npm ci
 
-      - name: Validar TypeScript
+      - name: Validar TypeScript (Lint)
         run: npm run lint
 
-      - name: Executar testes
+      - name: Executar testes unitarios
         run: npm test
 
-      - name: Gerar aplicacao web
+      - name: Gerar aplicacao web (Build)
         run: npm run build
 
-      - name: Criar projeto Android
-        run: npx cap add android
-
-      - name: Sincronizar arquivos
-        run: npx cap sync android
-
-      - name: Definir versao Android
+      - name: Sincronizar arquivos Android (Capacitor Sync)
         run: |
-          sed -i 's/versionCode 1/versionCode 3/' android/app/build.gradle
-          sed -i 's/versionName "1.0"/versionName "1.1.0"/' android/app/build.gradle
+          [ -d "android" ] || npx cap add android
+          npx cap sync android
+
+      - name: Configurar Keystore Fixa para Assinatura Determinística
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Decodificando keystore informada nos secrets do GitHub..."
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+          elif [ -f "android/app/release.keystore" ]; then
+            echo "Keystore fixa localizada no repositorio."
+          else
+            echo "Keystore personalizada não fornecida em secrets. Mantendo compilação debug consistente."
+          fi
 
       - name: Compilar APK instalavel
         working-directory: android
@@ -69,7 +79,16 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Publicar APK
+      - name: Verificar SHA-1 do APK Gerado
+        working-directory: android
+        run: |
+          echo "=== SHA-1 da Assinatura do APK Gerado ==="
+          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          if [ -f "$APK_PATH" ]; then
+            keytool -printcert -jarfile "$APK_PATH" | grep -i "SHA1:" || true
+          fi
+
+      - name: Publicar APK Artefato
         uses: actions/upload-artifact@v4
         with:
           name: seralle-vendas-v1.1.0-apk

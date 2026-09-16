@@ -46,6 +46,8 @@ export interface ConfigMes {
   cotaB: Cota;
   cotaC: Cota;
   cotaAlta: Cota;
+  metaLojaValor?: number; // Meta global de faturamento da loja (R$)
+  metaLojaPares?: number; // Meta global de pares da filial
   comissaoPadraoPct?: number; // Ex: 2.5% de comissão base
   metaPa?: number; // Ex: 1.5 Peças por Atendimento
   ativarFaixasComissao?: boolean;
@@ -53,6 +55,7 @@ export interface ConfigMes {
   diasUteisMes?: number; // Dias úteis para cálculo de DSR
   domingosFeriadosMes?: number; // Domingos/Feriados para cálculo de DSR
   updatedAt?: string; // Timestamp ISO da última alteração de metas
+  deletedAt?: string | null;
 }
 
 export interface UsuarioAuth {
@@ -61,9 +64,15 @@ export interface UsuarioAuth {
   displayName: string | null;
   photoURL?: string | null;
   loja?: string;
+  lojaEndereco?: string;
+  lojaCep?: string;
+  cargo?: string;
+  telefone?: string;
+  cadastroConfirmado?: boolean;
   role?: "vendedora" | "gerente";
   createdAt?: string;
   lastLoginAt?: string;
+  updatedAt?: string;
 }
 
 export interface Perfil {

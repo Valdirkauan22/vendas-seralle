@@ -90,10 +90,11 @@ export function parseValorMonetario(input: string | number): number {
 
 /**
  * Converte palavras de números por extenso em português para número real.
- * Ex: "cento e cinquenta" => 150, "duzentos e noventa e nove e noventa" => 299.90
+ * Ex: "cento e cinquenta" => 150, "duzentos e noventa e nove reais e noventa" => 299.90
  */
 export function converterExtensoParaNumero(texto: string): number {
   const t = texto.toLowerCase().trim();
+  if (!t) return 0;
 
   // Dicionário de valores fixos conhecidos
   const mapaUnidades: Record<string, number> = {
@@ -116,40 +117,68 @@ export function converterExtensoParaNumero(texto: string): number {
     novecentos: 900, novecentas: 900,
   };
 
-  // Divide o texto para analisar
-  const palavras = t.split(/[\s,]+/);
-  let total = 0;
-  let tempCentena = 0;
-  let tempDezena = 0;
-  let temNumero = false;
+  function converterBloco(str: string): number {
+    const palavras = str.split(/[\s,]+/);
+    let total = 0;
+    let tempCentena = 0;
+    let tempDezena = 0;
+    let temNumero = false;
 
-  for (let i = 0; i < palavras.length; i++) {
-    const p = palavras[i];
-    if (p === "e" || p === "de" || p === "reais" || p === "real") continue;
+    for (let i = 0; i < palavras.length; i++) {
+      const p = palavras[i];
+      if (p === "e" || p === "de" || p === "reais" || p === "real" || p === "centavos" || p === "centavo") continue;
 
-    if (p === "mil") {
-      if (total === 0 && tempCentena === 0 && tempDezena === 0) {
-        total = 1000;
-      } else {
-        total = (total + tempCentena + tempDezena) * 1000;
+      if (p === "mil") {
+        if (total === 0 && tempCentena === 0 && tempDezena === 0) {
+          total = 1000;
+        } else {
+          total = (total + tempCentena + tempDezena) * 1000;
+        }
+        tempCentena = 0;
+        tempDezena = 0;
+        temNumero = true;
+      } else if (mapaCentenas[p] !== undefined) {
+        tempCentena += mapaCentenas[p];
+        temNumero = true;
+      } else if (mapaDezenas[p] !== undefined) {
+        tempDezena += mapaDezenas[p];
+        temNumero = true;
+      } else if (mapaUnidades[p] !== undefined) {
+        tempDezena += mapaUnidades[p];
+        temNumero = true;
       }
-      tempCentena = 0;
-      tempDezena = 0;
-      temNumero = true;
-    } else if (mapaCentenas[p] !== undefined) {
-      tempCentena += mapaCentenas[p];
-      temNumero = true;
-    } else if (mapaDezenas[p] !== undefined) {
-      tempDezena += mapaDezenas[p];
-      temNumero = true;
-    } else if (mapaUnidades[p] !== undefined) {
-      tempDezena += mapaUnidades[p];
-      temNumero = true;
+    }
+
+    const acumulado = total + tempCentena + tempDezena;
+    return temNumero ? acumulado : 0;
+  }
+
+  // Se tem separador explícito de "reais" / "real" com centavos
+  if (t.includes("reais") || t.includes("real")) {
+    const partes = t.split(/\breais\b|\breal\b/);
+    const parteReais = partes[0] || "";
+    const parteCentavos = partes[1] || "";
+
+    const valorInteiro = converterBloco(parteReais);
+
+    let centavos = 0;
+    if (parteCentavos.trim()) {
+      // Checar se há números em dígitos na parte dos centavos (ex: "e 50 centavos")
+      const matchDigitos = parteCentavos.match(/(\d{1,2})/);
+      if (matchDigitos) {
+        centavos = parseInt(matchDigitos[1], 10);
+        if (centavos < 10 && matchDigitos[1].length === 1) centavos *= 10;
+      } else {
+        centavos = converterBloco(parteCentavos);
+      }
+    }
+
+    if (valorInteiro > 0 || centavos > 0) {
+      return valorInteiro + (centavos > 0 && centavos < 100 ? centavos / 100 : 0);
     }
   }
 
-  const acumulado = total + tempCentena + tempDezena;
-  return temNumero ? acumulado : 0;
+  return converterBloco(t);
 }
 
 export function nomeMes(mesNum: number): string {

@@ -67,9 +67,9 @@ export function LembretesModal({ onClose, onOpenLancarVenda }: LembretesModalPro
           "As notificações estão bloqueadas no sistema/navegador. Nas 'Configurações do Celular' > 'Aplicativos' > 'Diário Serallê' > 'Notificações', ative a chave de notificações."
         );
       } else {
-        // Quando o sistema do Android (TWA/WebView) não mostra prompt dinâmico ou permanece em 'default'
+        // Quando o sistema do Android não mostra prompt dinâmico ou permanece em 'default'
         setTestStatus(
-          "Dica: No Android, se o pop-up não aparecer na tela, abra 'Configurações do Celular' > 'Apps' > 'Diário Serallê' > 'Notificações' e marque 'Permitir Notificações'."
+          "Caso o aviso não apareça na tela, confirme se as notificações do app estão permitidas nas configurações do celular."
         );
       }
     } catch (err) {

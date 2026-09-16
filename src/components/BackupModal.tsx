@@ -12,7 +12,6 @@ import {
   Check,
   RefreshCw,
   Info,
-  Smartphone,
   HardDrive,
 } from "lucide-react";
 import { useVendas } from "@/context/VendasContext";
@@ -484,14 +483,6 @@ export function BackupModal({ onClose }: BackupModalProps) {
                   Você está usando o app no modo offline. Recomendamos baixar o <strong>Arquivo de Backup</strong> antes de desinstalar, ou conectar uma <strong>Conta Google</strong> na tela de login para ter salvamento perpétuo na nuvem.
                 </>
               )}
-            </p>
-          </div>
-
-          {/* Dica do Android Studio */}
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/60 flex items-start gap-2.5 text-[11px] text-slate-500">
-            <Smartphone className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-            <p>
-              <strong>Dica para o Android:</strong> Para instalar novas versões sem precisar desinstalar e sem perder nada, basta aumentar o <code className="bg-slate-200 px-1 py-0.5 rounded font-mono text-[10px]">versionCode</code> no <code className="bg-slate-200 px-1 py-0.5 rounded font-mono text-[10px]">build.gradle</code>.
             </p>
           </div>
         </div>

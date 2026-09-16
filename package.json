@@ -9,16 +9,25 @@
     "start": "node dist/server.cjs",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "android:sync": "npm run build && cap sync android",
-    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug"
+    "cap:sync": "cap sync android",
+    "cap:build": "npm run build && cap sync android"
+  },
+  "overrides": {
+    "qs": "^6.16.0",
+    "uuid": "^11.1.1"
   },
   "dependencies": {
+    "@capacitor-firebase/authentication": "^8.5.1",
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "@tailwindcss/vite": "^4.0.9",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "firebase": "^12.18.0",
+    "firebase-admin": "^14.4.0",
     "lucide-react": "^0.475.0",
     "motion": "^12.4.7",
     "qrcode.react": "^4.2.0",
@@ -27,9 +36,7 @@
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.0.1",
     "tailwindcss": "^4.0.9",
-    "xlsx": "^0.18.5",
-    "zod": "^3.24.2",
-    "@capacitor/core": "^7.4.3"
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/canvas-confetti": "^1.9.0",
@@ -44,8 +51,6 @@
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
     "vite": "^6.2.0",
-    "vitest": "^5.0.0",
-    "@capacitor/android": "^7.4.3",
-    "@capacitor/cli": "^7.4.3"
+    "vitest": "^5.0.0"
   }
 }

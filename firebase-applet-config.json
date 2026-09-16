@@ -1,12 +1,12 @@
 {
-  "projectId": "esoteric-effort-znm9t",
-  "appId": "1:935753504600:web:7f06f3e71a16f3ad21f72d",
-  "apiKey": "AIzaSyCES1h8VHm_7kOSwxvKd42G2w4nh2bFdOE",
-  "authDomain": "esoteric-effort-znm9t.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-vendasseralle-723e987b-29a0-4f4b-b5de-55f4874fda6f",
-  "storageBucket": "esoteric-effort-znm9t.firebasestorage.app",
-  "messagingSenderId": "935753504600",
-  "measurementId": "",
-  "oAuthClientId": "935753504600-l475t8d1i71ffdb3219n1f7h8iniupqb.apps.googleusercontent.com",
+  "projectId": "serale-vendas",
+  "appId": "1:463633651495:web:118ab23f52407dceac3b02",
+  "apiKey": "AIzaSyAN3oibt-cKSwJCeCR3naIcaXtq0l8K4K0",
+  "authDomain": "serale-vendas.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "serale-vendas.firebasestorage.app",
+  "messagingSenderId": "463633651495",
+  "measurementId": "G-DHFEB4ZNJM",
+  "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }

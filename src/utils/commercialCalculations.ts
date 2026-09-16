@@ -121,8 +121,8 @@ export function calcularTotaisMes(dias: Record<string, DiaVenda>, mesId: string)
 
   const margemMedia = somaPesosValor > 0 ? totalMargemPonderada / somaPesosValor : 0;
   const totalPecas = totalPares + totalAgregados;
-  // Mantém a mesma definição do cálculo diário: peças por atendimento.
-  const paMedio = totalAtendimentos > 0 ? totalPecas / totalAtendimentos : 0;
+  const divisorPAMedio = totalAtendimentos > 0 ? totalAtendimentos : qtdVendas;
+  const paMedio = divisorPAMedio > 0 ? totalPecas / divisorPAMedio : 0;
   const taxaConversao =
     totalAtendimentos > 0 ? Math.min(100, (qtdVendas / totalAtendimentos) * 100) : 100;
 
@@ -231,6 +231,48 @@ export function reconciliarDiasVenda(
         chavesParaEnviarRemoto.push(dataKey);
       } else {
         reconciliados[dataKey] = rDia;
+      }
+    }
+  });
+
+  return { reconciliados, chavesParaEnviarRemoto };
+}
+
+/**
+ * Reconcilia configurações de meses locais e remotos com garantia LWW (Last-Write-Wins)
+ * e respeito a atualizações com timestamps.
+ */
+export function reconciliarConfigsMes(
+  locais: Record<string, ConfigMes>,
+  remotos: Record<string, ConfigMes>
+): {
+  reconciliados: Record<string, ConfigMes>;
+  chavesParaEnviarRemoto: string[];
+} {
+  const reconciliados: Record<string, ConfigMes> = { ...locais };
+  const chavesParaEnviarRemoto: string[] = [];
+
+  Object.entries(remotos).forEach(([mesKey, rConfig]) => {
+    const lConfig = reconciliados[mesKey];
+
+    if (!lConfig) {
+      if (!rConfig.deletedAt) {
+        reconciliados[mesKey] = rConfig;
+      }
+    } else {
+      const localTime = lConfig.updatedAt ? new Date(lConfig.updatedAt).getTime() : 0;
+      const remoteTime = rConfig.updatedAt ? new Date(rConfig.updatedAt).getTime() : 0;
+
+      if (remoteTime > localTime) {
+        if (rConfig.deletedAt) {
+          delete reconciliados[mesKey];
+        } else {
+          reconciliados[mesKey] = rConfig;
+        }
+      } else if (localTime > remoteTime) {
+        chavesParaEnviarRemoto.push(mesKey);
+      } else {
+        reconciliados[mesKey] = rConfig;
       }
     }
   });

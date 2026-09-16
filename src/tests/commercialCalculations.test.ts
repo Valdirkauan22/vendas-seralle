@@ -4,6 +4,7 @@ import {
   calcularTotaisMes,
   calcularStatusCotas,
   reconciliarDiasVenda,
+  reconciliarConfigsMes,
 } from "../utils/commercialCalculations";
 import { DiaVenda, ConfigMes } from "../types";
 
@@ -211,5 +212,49 @@ describe("Reconciliação e Controle de Conflitos (LWW & Exclusões)", () => {
 
     // 2026-09-12: tombstone remoto mais novo removeu a venda local
     expect(reconciliados["2026-09-12"]).toBeUndefined();
+  });
+
+  it("deve reconciliar ConfigMes e metas com garantia LWW por timestamp", () => {
+    const configLocalBase: ConfigMes = {
+      cotaC: { valor: 20000, pares: 100, margem: 40 },
+      cotaB: { valor: 30000, pares: 150, margem: 42 },
+      cotaA: { valor: 40000, pares: 200, margem: 45 },
+      cotaAlta: { valor: 50000, pares: 250, margem: 48 },
+    };
+
+    const locais: Record<string, ConfigMes> = {
+      "2026-09": {
+        ...configLocalBase,
+        cotaA: { valor: 40000, pares: 200, margem: 45 },
+        updatedAt: "2026-09-01T10:00:00.000Z",
+      },
+      "2026-10": {
+        ...configLocalBase,
+        cotaA: { valor: 45000, pares: 220, margem: 45 },
+        updatedAt: "2026-10-01T15:00:00.000Z", // Local mais novo
+      },
+    };
+
+    const remotos: Record<string, ConfigMes> = {
+      "2026-09": {
+        ...configLocalBase,
+        cotaA: { valor: 42000, pares: 210, margem: 45 },
+        updatedAt: "2026-09-01T12:00:00.000Z", // Remoto mais novo
+      },
+      "2026-10": {
+        ...configLocalBase,
+        cotaA: { valor: 41000, pares: 200, margem: 45 },
+        updatedAt: "2026-10-01T08:00:00.000Z", // Remoto mais antigo
+      },
+    };
+
+    const { reconciliados, chavesParaEnviarRemoto } = reconciliarConfigsMes(locais, remotos);
+
+    // 2026-09: Remoto mais novo venceu
+    expect(reconciliados["2026-09"].cotaA.valor).toBe(42000);
+
+    // 2026-10: Local mais novo prevaleceu e foi listado para envio
+    expect(reconciliados["2026-10"].cotaA.valor).toBe(45000);
+    expect(chavesParaEnviarRemoto).toContain("2026-10");
   });
 });

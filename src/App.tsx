@@ -18,9 +18,11 @@ import { GuiaModal } from "@/components/GuiaModal";
 import { InstalarMobileModal } from "@/components/InstalarMobileModal";
 import { LembretesModal } from "@/components/LembretesModal";
 import { BackupModal } from "@/components/BackupModal";
+import { CadastroModal } from "@/components/CadastroModal";
 import { InAppNotificationToast } from "@/components/InAppNotificationToast";
 import { BottomNav } from "@/components/BottomNav";
 import { ViewMode } from "@/types";
+import { Store } from "lucide-react";
 import { getMesAtualId, getDataHoje } from "@/utils/formatters";
 import {
   getLembretesConfig,
@@ -31,6 +33,7 @@ import {
 
 function MainApp() {
   const { getDiaTotais } = useVendas();
+  const { user, userProfile } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>("dashboard");
   const [currentMonthId, setCurrentMonthId] = useState<string>(getMesAtualId());
 
@@ -43,6 +46,23 @@ function MainApp() {
   const [instalarMobileModalOpen, setInstalarMobileModalOpen] = useState(false);
   const [lembretesModalOpen, setLembretesModalOpen] = useState(false);
   const [backupModalOpen, setBackupModalOpen] = useState(false);
+  const [cadastroModalOpen, setCadastroModalOpen] = useState(false);
+
+  // Ao fazer login com o Google e entrar, se ainda não informou a filial específica (ou cadastro não confirmado),
+  // abre o modal de cadastro/filial na primeira vez na sessão para facilitar (ex: Serallê Cianorte).
+  useEffect(() => {
+    if (user && userProfile) {
+      const jaExibiuPrompt = sessionStorage.getItem("@diario_vendas:prompt_filial_seen");
+      const precisaConfigurarFilial =
+        !userProfile.cadastroConfirmado &&
+        (!userProfile.loja || userProfile.loja === "Serallê Calçados");
+
+      if (precisaConfigurarFilial && !jaExibiuPrompt) {
+        sessionStorage.setItem("@diario_vendas:prompt_filial_seen", "true");
+        setCadastroModalOpen(true);
+      }
+    }
+  }, [user, userProfile]);
 
   // Verificação periódica de lembretes e alertas de turno
   useEffect(() => {
@@ -105,15 +125,39 @@ function MainApp() {
         onOpenLancarVenda={handleLancarVendaHoje}
         onOpenMetas={() => setMetasModalOpen(true)}
         onOpenRelatorio={() => setRelatorioModalOpen(true)}
-        onOpenPerfis={() => setPerfisModalOpen(true)}
         onOpenGuia={() => setGuiaModalOpen(true)}
-        onOpenInstalarMobile={() => setInstalarMobileModalOpen(true)}
         onOpenLembretes={() => setLembretesModalOpen(true)}
         onOpenBackup={() => setBackupModalOpen(true)}
+        onOpenCadastro={() => setCadastroModalOpen(true)}
       />
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-8 pb-28 md:pb-8">
+        {/* Banner de Boas-vindas para informar Filial Serallê */}
+        {(!userProfile?.cadastroConfirmado || userProfile?.loja === "Serallê Calçados") && (
+          <div className="mb-4 p-3.5 sm:p-4 bg-gradient-to-r from-sky-600 via-[#0082D7] to-[#006BB5] text-white rounded-2xl shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-white shrink-0 shadow-inner">
+                <Store className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs sm:text-sm font-bold leading-tight">
+                  Informe sua unidade Serallê (ex: Loja Cianorte)
+                </p>
+                <p className="text-[11px] text-sky-100 font-medium mt-0.5">
+                  Selecione sua filial no menu suspenso para sincronizar suas metas e vendas com a loja correta.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setCadastroModalOpen(true)}
+              className="w-full sm:w-auto px-4 py-2 bg-white text-[#0082D7] hover:bg-sky-50 rounded-xl text-xs font-bold shrink-0 transition-colors shadow-sm cursor-pointer text-center"
+            >
+              Selecionar no Menu Suspenso
+            </button>
+          </div>
+        )}
+
         {/* Month selector displayed for active month views */}
         {viewMode !== "historico-metas" && (
           <MonthSelector
@@ -170,24 +214,10 @@ function MainApp() {
           </p>
           <div className="flex items-center gap-4">
             <button
-              onClick={() => setInstalarMobileModalOpen(true)}
-              className="text-emerald-700 hover:underline font-bold flex items-center gap-1 cursor-pointer"
-            >
-              <span>📱 Testar no Celular (QR Code)</span>
-            </button>
-            <span>·</span>
-            <button
               onClick={() => setGuiaModalOpen(true)}
               className="text-blue-700 hover:underline font-medium cursor-pointer"
             >
               Guia de Uso
-            </button>
-            <span>·</span>
-            <button
-              onClick={() => setPerfisModalOpen(true)}
-              className="text-blue-700 hover:underline font-medium cursor-pointer"
-            >
-              Nuvem & Perfis
             </button>
           </div>
         </div>
@@ -200,12 +230,19 @@ function MainApp() {
         onOpenLancarVenda={handleLancarVendaHoje}
         onOpenMetas={() => setMetasModalOpen(true)}
         onOpenRelatorio={() => setRelatorioModalOpen(true)}
-        onOpenPerfis={() => setPerfisModalOpen(true)}
         onOpenLembretes={() => setLembretesModalOpen(true)}
         onOpenBackup={() => setBackupModalOpen(true)}
+        onOpenCadastro={() => setCadastroModalOpen(true)}
       />
 
       {/* Modals */}
+      {cadastroModalOpen && (
+        <CadastroModal
+          isOpen={cadastroModalOpen}
+          onClose={() => setCadastroModalOpen(false)}
+        />
+      )}
+
       {selectedDiaDate && (
         <DiaModal
           dataStr={selectedDiaDate}

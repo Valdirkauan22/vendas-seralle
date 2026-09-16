@@ -178,49 +178,99 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
             profiles: data.profiles || [],
             dias: data.dias || [],
             configs: data.configs || [],
-            rawDias: data.rawDias || null,
-            rawConfigs: data.rawConfigs || null,
+            perfisData: data.perfisData || null,
           };
         }
       } catch (fsErr) {
-        console.warn("Aviso ao buscar backup no Firestore:", fsErr);
+        console.warn("Aviso ao buscar backup no Firestore do usuário:", fsErr);
       }
     }
 
-    // Não existe fallback público: dados de vendas só podem ser lidos
-    // dentro da área autenticada do próprio usuário.
-    return null;
-  }, [user?.uid]);
+    // 2. Consulta API do Express com Token de Autenticação Criptográfico
+    if (!user) {
+      console.warn("Sincronização com a nuvem requer usuário autenticado.");
+      return null;
+    }
+
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/sync/${formatted}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      console.warn("Cloud pull error", e);
+      return null;
+    }
+  }, [user]);
 
   const enviarDadosCloud = useCallback(async (code: string, payload: any): Promise<boolean> => {
     const formatted = (code || "").trim().toUpperCase();
     if (!formatted) return false;
 
-    let saved = false;
-
-    // 1. Grava no Firestore do usuário autenticado
-    if (user?.uid) {
-      try {
-        const docRef = doc(db, "users", user.uid, "syncBackup", formatted);
-        await setDoc(
-          docRef,
-          {
-            syncCode: formatted,
-            ...payload,
-            updatedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        );
-        saved = true;
-      } catch (fsErr) {
-        console.warn("Aviso ao gravar backup no Firestore:", fsErr);
-      }
+    if (!user?.uid) {
+      console.warn("Envio para a nuvem requer usuário autenticado.");
+      return false;
     }
 
-    // A cópia autenticada no Firestore é a única fonte de verdade.
-    // Usuários offline continuam protegidos pelo backup local exportável.
+    let saved = false;
+
+    // 1. Grava no Firestore do usuário autenticado e na coleção sync_store
+    try {
+      const docRef = doc(db, "users", user.uid, "syncBackup", formatted);
+      await setDoc(
+        docRef,
+        {
+          syncCode: formatted,
+          ownerUid: user.uid,
+          ...payload,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      saved = true;
+    } catch (fsErr) {
+      console.warn("Aviso ao gravar backup no Firestore do usuário:", fsErr);
+    }
+
+    try {
+      const syncDocRef = doc(db, "sync_store", formatted);
+      await setDoc(
+        syncDocRef,
+        {
+          syncCode: formatted,
+          ownerUid: user.uid,
+          ...payload,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      saved = true;
+    } catch (sErr) {
+      console.warn("Aviso ao gravar em sync_store:", sErr);
+    }
+
+    // 2. Grava no servidor Express com token de autenticação oficial
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/sync/${formatted}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) saved = true;
+    } catch (e) {
+      console.warn("Cloud push error", e);
+    }
+
     return saved;
-  }, [user?.uid]);
+  }, [user]);
 
   return (
     <ProfileContext.Provider

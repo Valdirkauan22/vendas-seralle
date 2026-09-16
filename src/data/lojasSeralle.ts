@@ -1,0 +1,157 @@
+export interface LojaSeralle {
+  id: string;
+  nome: string;
+  cidade: string;
+  endereco: string;
+  cep: string;
+  uf: string;
+  destaque?: boolean;
+}
+
+export const LOJAS_SERALLE: LojaSeralle[] = [
+  {
+    id: "cianorte",
+    nome: "Loja Cianorte",
+    cidade: "Cianorte",
+    endereco: "550 Avenida Souza Naves, Cianorte, PR - 87200-252",
+    cep: "87200-252",
+    uf: "PR",
+    destaque: true,
+  },
+  {
+    id: "toledo",
+    nome: "Loja Toledo",
+    cidade: "Toledo",
+    endereco: "0965 Rua Sete de Setembro, Toledo, PR - 85900-220",
+    cep: "85900-220",
+    uf: "PR",
+  },
+  {
+    id: "guarapuava",
+    nome: "Loja Guarapuava",
+    cidade: "Guarapuava",
+    endereco: "1691 Rua Saldanha Marinho, Guarapuava, PR - 85064-030",
+    cep: "85064-030",
+    uf: "PR",
+  },
+  {
+    id: "apucarana",
+    nome: "Loja Apucarana",
+    cidade: "Apucarana",
+    endereco: "1040 Avenida Curitiba, Apucarana, PR - 86800-702",
+    cep: "86800-702",
+    uf: "PR",
+  },
+  {
+    id: "cascavel",
+    nome: "Loja Cascavel",
+    cidade: "Cascavel",
+    endereco: "5980 Avenida Brasil, Cascavel, PR - 85812-001",
+    cep: "85812-001",
+    uf: "PR",
+  },
+  {
+    id: "campo-mourao",
+    nome: "Loja Campo Mourão",
+    cidade: "Campo Mourão",
+    endereco: "1431 Avenida Manoel Mendes de Camargo, Campo Mourão, PR - 87303-115",
+    cep: "87303-115",
+    uf: "PR",
+  },
+  {
+    id: "cornelio-procopio",
+    nome: "Loja Cornélio Procópio",
+    cidade: "Cornélio Procópio",
+    endereco: "565 Avenida XV de Novembro, Cornélio Procópio, PR - 86300-000",
+    cep: "86300-000",
+    uf: "PR",
+  },
+  {
+    id: "arapongas",
+    nome: "Loja Arapongas",
+    cidade: "Arapongas",
+    endereco: "460 Avenida Arapongas, Arapongas, PR - 86700-050",
+    cep: "86700-050",
+    uf: "PR",
+  },
+  {
+    id: "ponta-grossa",
+    nome: "Loja Ponta Grossa",
+    cidade: "Ponta Grossa",
+    endereco: "362 Avenida Doutor Vicente Machado, Ponta Grossa, PR - 84010-000",
+    cep: "84010-000",
+    uf: "PR",
+  },
+  {
+    id: "foz-do-iguacu",
+    nome: "Loja Foz do Iguaçu",
+    cidade: "Foz do Iguaçu",
+    endereco: "456 Avenida Brasil, Foz do Iguaçu, PR - 85851-000",
+    cep: "85851-000",
+    uf: "PR",
+  },
+  {
+    id: "londrina",
+    nome: "Loja Londrina",
+    cidade: "Londrina",
+    endereco: "760 Rua Sergipe, Londrina, PR - 87702-350",
+    cep: "87702-350",
+    uf: "PR",
+  },
+  {
+    id: "cambe",
+    nome: "Loja Cambé",
+    cidade: "Cambé",
+    endereco: "30 Avenida Brasil, Cambé, PR - 86181-010",
+    cep: "86181-010",
+    uf: "PR",
+  },
+  {
+    id: "irati",
+    nome: "Loja Irati",
+    cidade: "Irati",
+    endereco: "333 Rua Doutor Munhoz da Rocha, Irati, PR - 84500-000",
+    cep: "84500-000",
+    uf: "PR",
+  },
+  {
+    id: "bandeirantes",
+    nome: "Loja Bandeirantes",
+    cidade: "Bandeirantes",
+    endereco: "878 Avenida Bandeirantes, Bandeirantes, PR - 86360-000",
+    cep: "86360-000",
+    uf: "PR",
+  },
+  {
+    id: "ibipora",
+    nome: "Loja Ibiporã",
+    cidade: "Ibiporã",
+    endereco: "167 Avenida Paraná, Ibiporã, PR - 86200-000",
+    cep: "86200-000",
+    uf: "PR",
+  },
+  {
+    id: "sto-antonio-da-platina",
+    nome: "Loja Sto. Antônio da Platina",
+    cidade: "Santo Antônio da Platina",
+    endereco: "820 Rua Rui Barbosa, Santo Antônio da Platina, PR - 86430-000",
+    cep: "86430-000",
+    uf: "PR",
+  },
+  {
+    id: "maringa",
+    nome: "Loja Maringá",
+    cidade: "Maringá",
+    endereco: "3454 Avenida Brasil, Maringá, PR - 87013-000",
+    cep: "87013-000",
+    uf: "PR",
+  },
+  {
+    id: "curitiba",
+    nome: "Loja Curitiba",
+    cidade: "Curitiba",
+    endereco: "50 Rua Monsenhor Celso, Curitiba, PR - 80010-150",
+    cep: "80010-150",
+    uf: "PR",
+  },
+];

@@ -7,9 +7,15 @@
         "name": { "type": "string", "description": "Nome da vendedora" },
         "email": { "type": "string", "description": "E-mail de login" },
         "photoURL": { "type": "string", "description": "URL da foto do Google perfil" },
-        "loja": { "type": "string", "description": "Unidade / Filial Serallê" },
+        "loja": { "type": "string", "description": "Unidade / Filial Serallê (ex: Loja Cianorte)" },
+        "lojaEndereco": { "type": "string", "description": "Endereço completo da filial" },
+        "lojaCep": { "type": "string", "description": "CEP da filial Serallê" },
+        "cargo": { "type": "string", "description": "Cargo ou função na loja" },
+        "telefone": { "type": "string", "description": "Telefone ou WhatsApp de contato" },
+        "cadastroConfirmado": { "type": "boolean", "description": "Indica se o usuário preencheu e confirmou sua unidade" },
         "createdAt": { "type": "string", "description": "Data de cadastro ISO" },
-        "lastLoginAt": { "type": "string", "description": "Último login ISO" }
+        "lastLoginAt": { "type": "string", "description": "Último login ISO" },
+        "updatedAt": { "type": "string", "description": "Data da última atualização cadastral" }
       }
     },
     "Venda": {
@@ -28,6 +34,7 @@
       "collection": "users/{userId}/configMes",
       "fields": {
         "mesId": { "type": "string", "description": "ID do mês YYYY-MM" },
+        "metaLojaValor": { "type": "number", "description": "Meta mensal global da loja R$" },
         "metaDiariaValor": { "type": "number", "description": "Meta diária R$" },
         "metaDiariaPares": { "type": "number", "description": "Meta diária pares" },
         "cotaA": { "type": "object", "description": "Meta Cota A" },

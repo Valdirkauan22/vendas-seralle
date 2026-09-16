@@ -1,0 +1,24 @@
+{
+	"appId": "com.seralle.vendas",
+	"appName": "Diário de Vendas Serallê",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https",
+		"cleartext": true
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 1500,
+			"launchAutoHide": true,
+			"backgroundColor": "#C8102E",
+			"androidSplashResourceName": "splash",
+			"androidScaleType": "CENTER_CROP"
+		},
+		"FirebaseAuthentication": {
+			"skipNativeAuth": true,
+			"providers": [
+				"google.com"
+			]
+		}
+	}
+}
