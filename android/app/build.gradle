@@ -18,16 +18,22 @@ android {
     }
     signingConfigs {
         release {
+            def keystoreFile = file('release.keystore')
             if (project.hasProperty('RELEASE_STORE_FILE') && file(project.property('RELEASE_STORE_FILE')).exists()) {
-                storeFile file(project.property('RELEASE_STORE_FILE'))
-                storePassword project.findProperty('RELEASE_STORE_PASSWORD') ?: "android"
-                keyAlias project.findProperty('RELEASE_KEY_ALIAS') ?: "androiddebugkey"
-                keyPassword project.findProperty('RELEASE_KEY_PASSWORD') ?: "android"
-            } else if (file('release.keystore').exists()) {
-                storeFile file('release.keystore')
-                storePassword System.getenv("KEYSTORE_PASSWORD") ?: "android"
-                keyAlias System.getenv("KEY_ALIAS") ?: "androiddebugkey"
-                keyPassword System.getenv("KEY_PASSWORD") ?: "android"
+                keystoreFile = file(project.property('RELEASE_STORE_FILE'))
+            } else if (System.getenv("KEYSTORE_PATH") && file(System.getenv("KEYSTORE_PATH")).exists()) {
+                keystoreFile = file(System.getenv("KEYSTORE_PATH"))
+            }
+
+            if (keystoreFile.exists()) {
+                storeFile keystoreFile
+                def sPassword = System.getenv("KEYSTORE_PASSWORD")
+                def sAlias = System.getenv("KEY_ALIAS")
+                def kPassword = System.getenv("KEY_PASSWORD")
+
+                storePassword ((sPassword && !sPassword.trim().isEmpty()) ? sPassword : (project.findProperty('RELEASE_STORE_PASSWORD') ?: "android"))
+                keyAlias ((sAlias && !sAlias.trim().isEmpty()) ? sAlias : (project.findProperty('RELEASE_KEY_ALIAS') ?: "androiddebugkey"))
+                keyPassword ((kPassword && !kPassword.trim().isEmpty()) ? kPassword : (project.findProperty('RELEASE_KEY_PASSWORD') ?: "android"))
             }
         }
     }

@@ -55,6 +55,28 @@ jobs:
       - name: Gerar aplicacao web (Build)
         run: npm run build
 
+      - name: Validar e Configurar google-services.json
+        env:
+          GOOGLE_SERVICES_JSON_SECRET: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          mkdir -p android/app
+          if [ -n "$GOOGLE_SERVICES_JSON_SECRET" ]; then
+            echo "Criando android/app/google-services.json a partir do secret GOOGLE_SERVICES_JSON..."
+            echo "$GOOGLE_SERVICES_JSON_SECRET" > android/app/google-services.json
+          fi
+
+          if [ ! -f "android/app/google-services.json" ]; then
+            echo "::error::Arquivo android/app/google-services.json não encontrado!"
+            echo "Para o Google Login funcionar nativamente no Android, adicione o secret GOOGLE_SERVICES_JSON nas configurações do GitHub (Settings > Secrets and variables > Actions) ou inclua o arquivo android/app/google-services.json no repositório."
+            exit 1
+          fi
+
+          if ! grep -q "com.seralle.vendas" "android/app/google-services.json"; then
+            echo "::error::O arquivo android/app/google-services.json não contém a configuração para o pacote com.seralle.vendas!"
+            exit 1
+          fi
+          echo "✅ google-services.json validado com sucesso para com.seralle.vendas."
+
       - name: Sincronizar arquivos Android (Capacitor Sync)
         run: |
           [ -d "android" ] || npx cap add android
@@ -64,17 +86,25 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
+          mkdir -p android/app
           if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "Decodificando keystore informada nos secrets do GitHub..."
+            echo "Decodificando keystore fixa do secret ANDROID_KEYSTORE_BASE64..."
             echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
           elif [ -f "android/app/release.keystore" ]; then
-            echo "Keystore fixa localizada no repositorio."
+            echo "Keystore fixa localizada no repositório em android/app/release.keystore."
           else
-            echo "Keystore personalizada não fornecida em secrets. Mantendo compilação debug consistente."
+            echo "::error::Keystore fixa obrigatória ausente!"
+            echo "Para garantir que o APK mantenha o mesmo SHA-1 registrado no Firebase (C2:82:53:89:A7:3E:51:D9:94:62:9A:E1:D8:BC:D1:66:FA:9A:A4:68), configure o secret ANDROID_KEYSTORE_BASE64 no GitHub (Settings > Secrets and variables > Actions)."
+            exit 1
           fi
 
       - name: Compilar APK instalavel
         working-directory: android
+        env:
+          KEYSTORE_PATH: release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
@@ -86,6 +116,15 @@ jobs:
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
           if [ -f "$APK_PATH" ]; then
             keytool -printcert -jarfile "$APK_PATH" | grep -i "SHA1:" || true
+            CALCULATED_SHA1=$(keytool -printcert -jarfile "$APK_PATH" | grep -i "SHA1:" | head -n 1 | tr -d ' ' | cut -d':' -f2-)
+            EXPECTED_SHA1="C2:82:53:89:A7:3E:51:D9:94:62:9A:E1:D8:BC:D1:66:FA:9A:A4:68"
+            CLEAN_CALC=$(echo "$CALCULATED_SHA1" | tr -d ':' | tr '[:lower:]' '[:upper:]')
+            CLEAN_EXP=$(echo "$EXPECTED_SHA1" | tr -d ':' | tr '[:lower:]' '[:upper:]')
+            if [ -n "$CLEAN_CALC" ] && [ "$CLEAN_CALC" = "$CLEAN_EXP" ]; then
+              echo "✅ SUCESSO: O SHA-1 do APK bate exatamente com a chave cadastrada no Firebase!"
+            else
+              echo "Aviso: SHA-1 gerado ($CALCULATED_SHA1) vs Esperado no Firebase ($EXPECTED_SHA1)."
+            fi
           fi
 
       - name: Publicar APK Artefato
