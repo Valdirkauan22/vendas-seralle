@@ -125,11 +125,32 @@ jobs:
           echo "=== SHA-1 da Assinatura do APK Gerado ==="
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
           if [ -f "$APK_PATH" ]; then
-            keytool -printcert -jarfile "$APK_PATH" | grep -i "SHA1:" || true
-            CALCULATED_SHA1=$(keytool -printcert -jarfile "$APK_PATH" | grep -i "SHA1:" | head -n 1 | tr -d ' ' | cut -d':' -f2-)
+            CALCULATED_SHA1=""
+            
+            # Prioridade 1: apksigner oficial do Android SDK (compatível com esquemas V1, V2, V3 e V4)
+            APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -1)
+            if [ -n "$APKSIGNER" ] && [ -x "$APKSIGNER" ]; then
+              echo "Utilizando apksigner em: $APKSIGNER"
+              CERT_OUTPUT=$("$APKSIGNER" verify --print-certs "$APK_PATH" 2>/dev/null || true)
+              echo "$CERT_OUTPUT" | grep -i "SHA-1" || true
+              CALCULATED_SHA1=$(echo "$CERT_OUTPUT" | sed -n 's/.*certificate SHA-1 digest: //p' | head -n 1 | tr -d ' ')
+            fi
+
+            # Prioridade 2: Fallback com keytool se o apksigner não retornar
+            if [ -z "$CALCULATED_SHA1" ]; then
+              echo "Tentando fallback com keytool..."
+              KT_OUTPUT=$(keytool -printcert -jarfile "$APK_PATH" 2>/dev/null || true)
+              echo "$KT_OUTPUT" | grep -i "SHA1:" || true
+              CALCULATED_SHA1=$(echo "$KT_OUTPUT" | grep -i "SHA1:" | head -n 1 | tr -d ' ' | cut -d':' -f2-)
+            fi
+
             EXPECTED_SHA1="C2:82:53:89:A7:3E:51:D9:94:62:9A:E1:D8:BC:D1:66:FA:9A:A4:68"
             CLEAN_CALC=$(echo "$CALCULATED_SHA1" | tr -d ':' | tr '[:lower:]' '[:upper:]')
             CLEAN_EXP=$(echo "$EXPECTED_SHA1" | tr -d ':' | tr '[:lower:]' '[:upper:]')
+
+            echo "SHA-1 Extraído: $CLEAN_CALC"
+            echo "SHA-1 Esperado: $CLEAN_EXP"
+
             if [ -n "$CLEAN_CALC" ] && [ "$CLEAN_CALC" = "$CLEAN_EXP" ]; then
               echo "✅ SUCESSO: O SHA-1 do APK bate exatamente com a chave cadastrada no Firebase!"
             else
@@ -137,6 +158,9 @@ jobs:
               echo "Isso impedirá o funcionamento do Login Google no APK instalado. Verifique se o secret ANDROID_KEYSTORE_BASE64 está correto."
               exit 1
             fi
+          else
+            echo "::error::Arquivo APK não encontrado em $APK_PATH!"
+            exit 1
           fi
 
       - name: Publicar APK Artefato
