@@ -366,4 +366,50 @@ describe("Fluxo Completo de Sincronização e Prevenção de Sobrescrita (Pull-F
     // A venda excluída foi eliminada no estado reconciliado e NÃO ressurge
     expect(resultado.diasReconciliados["2026-09-10"]).toBeUndefined();
   });
+
+  it("preserva a edição local quando local e nuvem possuem o mesmo timestamp", () => {
+    const timestamp = "2026-09-17T13:00:00.000Z";
+    const local: Record<string, DiaVenda> = {
+      "2026-09-17": {
+        itens: [{ id: "v1", valor: 450, pares: 2, hora: timestamp, descricao: "Valor editado" }],
+        margem: 45,
+        updatedAt: timestamp,
+      },
+    };
+    const remoto: Record<string, DiaVenda> = {
+      "2026-09-17": {
+        itens: [{ id: "v1", valor: 300, pares: 1, hora: timestamp, descricao: "Valor anterior" }],
+        margem: 45,
+        updatedAt: timestamp,
+      },
+    };
+
+    const resultado = reconciliarDiasVenda(local, remoto);
+
+    expect(resultado.reconciliados["2026-09-17"].itens[0].valor).toBe(450);
+    expect(resultado.reconciliados["2026-09-17"].itens[0].descricao).toBe("Valor editado");
+    expect(resultado.chavesParaEnviarRemoto).toContain("2026-09-17");
+  });
+
+  it("não trata timestamp inválido da nuvem como versão vencedora", () => {
+    const local: Record<string, DiaVenda> = {
+      "2026-09-17": {
+        itens: [{ id: "novo", valor: 500, pares: 3, hora: "13:30", descricao: "Venda nova" }],
+        margem: 46,
+        updatedAt: "2026-09-17T13:30:00.000Z",
+      },
+    };
+    const remoto: Record<string, DiaVenda> = {
+      "2026-09-17": {
+        itens: [{ id: "antigo", valor: 100, pares: 1, hora: "09:00", descricao: "Venda antiga" }],
+        margem: 40,
+        updatedAt: "timestamp-invalido",
+      },
+    };
+
+    const resultado = reconciliarDiasVenda(local, remoto);
+
+    expect(resultado.reconciliados["2026-09-17"].itens[0].id).toBe("novo");
+    expect(resultado.chavesParaEnviarRemoto).toContain("2026-09-17");
+  });
 });
