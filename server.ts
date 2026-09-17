@@ -379,134 +379,233 @@ async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
-  // Endpoint de transcrição e inteligência de voz com Gemini API
+  // Endpoint de transcrição e inteligência de voz com Gemini API e fallback resiliente
   app.post("/api/transcribe-voice", apiRateLimiter, async (req, res) => {
     try {
-      const { audioBase64, mimeType, textInput } = req.body;
+      let { audioBase64, mimeType, textInput } = req.body;
 
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({ error: "Chave GEMINI_API_KEY não configurada no servidor." });
-      }
+      // Helper determinístico de extração em português brasileiro
+      const extractSaleFromText = (text: string) => {
+        let raw = (text || "").trim();
+        // Remove repetições consecutivas de palavras e frases
+        raw = raw.replace(/\b([a-zA-ZÀ-ÿ0-9]+\s+[a-zA-ZÀ-ÿ0-9]+(?:\s+[a-zA-ZÀ-ÿ0-9]+){0,3})\s+\1\b/gi, "$1");
+        raw = raw.replace(/\b([a-zA-ZÀ-ÿ0-9]+)(?:\s+\1\b)+/gi, "$1");
+        raw = raw.replace(/\s{2,}/g, " ").trim();
+        const lower = raw.toLowerCase();
 
-      const { GoogleGenAI } = await import("@google/genai");
-      const ai = new GoogleGenAI({ apiKey });
+        // 1. Pares
+        let pares = 1;
+        const paresNumMatch = lower.match(/(\d+)\s*(par|pares)/i);
+        if (paresNumMatch && paresNumMatch[1]) {
+          pares = parseInt(paresNumMatch[1], 10) || 1;
+        } else if (lower.includes("dois pares") || lower.includes("duas pares")) {
+          pares = 2;
+        } else if (lower.includes("três pares") || lower.includes("tres pares")) {
+          pares = 3;
+        } else if (lower.includes("quatro pares")) {
+          pares = 4;
+        } else if (lower.includes("cinco pares")) {
+          pares = 5;
+        }
 
-      const promptInstructions = `Você é um assistente de vendas da loja de sapatos Serallê Calçados.
-Sua tarefa é analisar o áudio ou texto falado pela vendedora e extrair os dados da venda.
-Você DEVE responder ESTRITAMENTE em formato JSON com o seguinte schema:
-{
-  "valor": number (valor monetário em reais, ex: 199.90 ou 250.00. Se não informado ou zero, coloque 0),
-  "pares": number (número de pares de calçados vendidos, número inteiro >= 1. Padrão 1),
-  "agregados": number (quantidade de itens agregados como meias, sprays, palmilhas, cintos, limpador. Padrão 0),
-  "categoria": "Feminino" | "Masculino" | "Infantil" | "Esportivo" | "Conforto" | "Acessórios",
-  "descricao": string (descrição curta e legível da venda, ex: "Tênis Feminino + 1 Par de Meias"),
-  "transcricao": string (o texto exato que a vendedora falou)
-}
-Instruções para categoria:
-- Feminino: rasteira, sandália, salto, scarpin, bota feminina, sapatilha, vizzano, moleca, dakota, via marte, beira rio.
-- Masculino: sapatênis, sapato social, bota masculina, ferracini, democrata, pegada.
-- Esportivo: tênis de corrida, academia, caminhada, olympikus, nike, mizuno, fila, asics.
-- Infantil: infantil, molekinha, molekinho, klin, bibi, kids, bebê.
-- Conforto: usaflex, modare, ortopédico, campesi, piccadilly.
-- Acessórios: meias, palmilhas, sprays, bolsas, cintos, carteiras.
-Responda APENAS o JSON puro sem formatação markdown envolvente.`;
+        // 2. Agregados
+        let agregados = 0;
+        const agMatch = lower.match(/(\d+)\s*(meia|meias|spray|sprays|palmilha|palmilhas|cinto|cintos|carteira|carteiras|agregado|agregados|limpador)/i);
+        if (agMatch && agMatch[1]) {
+          agregados = parseInt(agMatch[1], 10) || 1;
+        } else if (lower.includes("duas meias") || lower.includes("dois sprays") || lower.includes("duas palmilhas")) {
+          agregados = 2;
+        } else if (lower.includes("meia") || lower.includes("spray") || lower.includes("palmilha") || lower.includes("cinto") || lower.includes("carteira") || lower.includes("limpador")) {
+          agregados = 1;
+        }
 
-      let contents: any;
-      if (audioBase64) {
-        contents = [
-          {
-            role: "user",
-            parts: [
-              {
-                inlineData: {
-                  mimeType: mimeType || "audio/webm",
-                  data: audioBase64,
-                },
-              },
-              {
-                text: `${promptInstructions}\n\nAnalise o áudio enviado.`
-              },
-            ],
-          },
-        ];
-      } else if (textInput) {
-        contents = [
-          {
-            role: "user",
-            parts: [
-              {
-                text: `${promptInstructions}\n\nTexto recebido:\n"${textInput}"`
-              },
-            ],
-          },
-        ];
-      } else {
+        // 3. Categoria
+        let categoria = "Feminino";
+        if (
+          lower.includes("masculin") ||
+          lower.includes("sapato social") ||
+          lower.includes("sapatênis") ||
+          lower.includes("bota masculina") ||
+          lower.includes("pegada") ||
+          lower.includes("ferracini") ||
+          lower.includes("democrata")
+        ) {
+          categoria = "Masculino";
+        } else if (
+          lower.includes("infantil") ||
+          lower.includes("molekinh") ||
+          lower.includes("klin") ||
+          lower.includes("bibi") ||
+          lower.includes("kids") ||
+          lower.includes("bebê")
+        ) {
+          categoria = "Infantil";
+        } else if (
+          lower.includes("esport") ||
+          lower.includes("tênis") ||
+          lower.includes("corrida") ||
+          lower.includes("academia") ||
+          lower.includes("nike") ||
+          lower.includes("olympikus") ||
+          lower.includes("mizuno") ||
+          lower.includes("asics") ||
+          lower.includes("fila")
+        ) {
+          categoria = "Esportivo";
+        } else if (
+          lower.includes("confort") ||
+          lower.includes("usaflex") ||
+          lower.includes("modare") ||
+          lower.includes("piccadilly") ||
+          lower.includes("campesi") ||
+          lower.includes("ortopédico")
+        ) {
+          categoria = "Conforto";
+        } else if (
+          lower.includes("meia") ||
+          lower.includes("spray") ||
+          lower.includes("palmilha") ||
+          lower.includes("cinto") ||
+          lower.includes("bolsa") ||
+          lower.includes("carteira")
+        ) {
+          categoria = "Acessórios";
+        }
+
+        // 4. Valor
+        let valor = 0;
+        const moedaMatch = lower.match(/(?:r\$\s*)?(\d{1,4}(?:[.,]\d{2}))/i);
+        const reaisCentMatch = lower.match(/(\d+)\s*(?:reais|real)?\s*(?:e\s*(\d{1,2})\s*(?:centavos)?)?/i);
+        const reaisMatch = lower.match(/(\d+)\s*(?:reais|real)/i);
+        const generalMatch = lower.match(/\d+([.,]\d+)?/);
+
+        if (moedaMatch && moedaMatch[1]) {
+          valor = parseFloat(moedaMatch[1].replace(",", "."));
+        } else if (reaisMatch && reaisMatch[1]) {
+          valor = parseFloat(reaisMatch[1]);
+        } else if (reaisCentMatch && reaisCentMatch[1] && (lower.includes("real") || lower.includes("reais") || reaisCentMatch[2])) {
+          const inteiros = parseFloat(reaisCentMatch[1]) || 0;
+          const centavos = reaisCentMatch[2] ? parseInt(reaisCentMatch[2], 10) / (reaisCentMatch[2].length === 1 ? 10 : 100) : 0;
+          valor = inteiros + centavos;
+        } else if (generalMatch && generalMatch[0]) {
+          valor = parseFloat(generalMatch[0].replace(",", "."));
+        }
+
+        return {
+          valor: isNaN(valor) ? 0 : valor,
+          pares: isNaN(pares) ? 1 : pares,
+          agregados: isNaN(agregados) ? 0 : agregados,
+          categoria,
+          descricao: raw.slice(0, 60) || `${pares} par(es) ${categoria}`,
+          transcricao: raw,
+        };
+      };
+
+      if (!audioBase64 && !textInput) {
         return res.status(400).json({ error: "Parâmetro 'audioBase64' ou 'textInput' é obrigatório." });
       }
 
-      const candidateModels = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.5-flash", "gemini-3.6-flash"];
-      let parsedData: any = null;
-      let lastError: any = null;
-
-      for (const modelName of candidateModels) {
+      const apiKey = process.env.GEMINI_API_KEY;
+      let ai: any = null;
+      if (apiKey) {
         try {
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`Timeout de 3.5s no modelo ${modelName}`)), 3500)
-          );
-
-          const generatePromise = ai.models.generateContent({
-            model: modelName,
-            contents,
-            config: {
-              responseMimeType: "application/json",
+          const { GoogleGenAI } = await import("@google/genai");
+          ai = new GoogleGenAI({
+            apiKey,
+            httpOptions: {
+              headers: {
+                "User-Agent": "aistudio-build",
+              },
             },
           });
-
-          const response: any = await Promise.race([generatePromise, timeoutPromise]);
-
-          const responseText = response.text || "{}";
-          const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-          parsedData = JSON.parse(cleanJson);
-          if (parsedData && (parsedData.valor !== undefined || parsedData.descricao || parsedData.transcricao)) {
-            break;
-          }
-        } catch (modelErr: any) {
-          lastError = modelErr;
-          console.warn(`[Voice] Modelo ${modelName} falhou, tentando próximo:`, modelErr.message || modelErr);
+        } catch (e) {
+          console.warn("Não foi possível carregar GoogleGenAI:", e);
         }
       }
 
-      if (parsedData) {
-        return res.json(parsedData);
+      // Se temos áudio mas não texto, tentamos transcrever o áudio
+      if (audioBase64 && !textInput && ai) {
+        // Tentativa 1: gemini-3.5-transcribe oficial para transcrição de áudio
+        try {
+          const transcribeRes: any = await Promise.race([
+            ai.models.generateContent({
+              model: "gemini-3.5-transcribe",
+              contents: {
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: mimeType || "audio/webm",
+                      data: audioBase64,
+                    },
+                  },
+                  { text: "Transcreva este áudio em português do Brasil com exatidão." },
+                ],
+              },
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout transcrição")), 8000)),
+          ]);
+
+          if (transcribeRes?.text) {
+            textInput = transcribeRes.text.trim();
+          }
+        } catch (transcribeErr: any) {
+          console.warn("[Voice] gemini-3.5-transcribe falhou, tentando modelo multimodal alternativo:", transcribeErr.message || transcribeErr);
+        }
       }
 
-      // Se todas as IAs falharam mas temos texto recebido, responde com dados básicos estruturados
+      // Se temos textInput (ou via áudio transcrito ou via texto direto), tentamos estruturação com IA
+      if (textInput && ai) {
+        const promptInstructions = `Você é um assistente da loja Serallê Calçados. Extraia a venda deste texto em JSON estrito:
+{
+  "valor": number (valor em reais ex: 199.90. Se não informado, 0),
+  "pares": number (>= 1, padrão 1),
+  "agregados": number (meias, sprays, etc, padrão 0),
+  "categoria": "Feminino" | "Masculino" | "Infantil" | "Esportivo" | "Conforto" | "Acessórios",
+  "descricao": string,
+  "transcricao": "${textInput.replace(/"/g, "'")}"
+}
+Texto: "${textInput}"`;
+
+        const candidateModels = ["gemini-flash-latest", "gemini-3.8-flash"];
+        for (const modelName of candidateModels) {
+          try {
+            const aiRes: any = await Promise.race([
+              ai.models.generateContent({
+                model: modelName,
+                contents: [{ role: "user", parts: [{ text: promptInstructions }] }],
+                config: { responseMimeType: "application/json" },
+              }),
+              new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6000)),
+            ]);
+
+            const clean = (aiRes.text || "").replace(/```json/g, "").replace(/```/g, "").trim();
+            const parsed = JSON.parse(clean);
+            if (parsed && (parsed.valor !== undefined || parsed.categoria)) {
+              return res.json({
+                valor: Number(parsed.valor) || 0,
+                pares: Number(parsed.pares) || 1,
+                agregados: Number(parsed.agregados) || 0,
+                categoria: parsed.categoria || "Feminino",
+                descricao: parsed.descricao || textInput.slice(0, 60),
+                transcricao: parsed.transcricao || textInput,
+              });
+            }
+          } catch (modelErr: any) {
+            console.warn(`[Voice] Modelo ${modelName} falhou:`, modelErr.message || modelErr);
+          }
+        }
+      }
+
+      // Fallback final resiliente: extração determinística via regex em português
       if (textInput) {
-        const lower = textInput.toLowerCase();
-        let cat = "Feminino";
-        if (lower.includes("masculin") || lower.includes("sapato social") || lower.includes("sapatênis") || lower.includes("bota masculina") || lower.includes("pegada") || lower.includes("ferracini")) cat = "Masculino";
-        else if (lower.includes("infantil") || lower.includes("kids") || lower.includes("bebê") || lower.includes("molekinh") || lower.includes("klin")) cat = "Infantil";
-        else if (lower.includes("esport") || lower.includes("tênis") || lower.includes("corrida") || lower.includes("nike") || lower.includes("olympikus")) cat = "Esportivo";
-        else if (lower.includes("confort") || lower.includes("usaflex") || lower.includes("modare") || lower.includes("piccadilly")) cat = "Conforto";
-        else if (lower.includes("meia") || lower.includes("spray") || lower.includes("palmilha") || lower.includes("cinto") || lower.includes("bolsa")) cat = "Acessórios";
-
-        // Extrai número do texto se possível
-        const numMatch = textInput.match(/\d+([.,]\d+)?/);
-        const valorExtraido = numMatch ? parseFloat(numMatch[0].replace(",", ".")) : 0;
-
-        return res.json({
-          valor: valorExtraido,
-          pares: 1,
-          agregados: lower.includes("meia") || lower.includes("spray") ? 1 : 0,
-          categoria: cat,
-          descricao: textInput.slice(0, 60),
-          transcricao: textInput,
-        });
+        const extracted = extractSaleFromText(textInput);
+        return res.json(extracted);
       }
 
-      console.error("Erro no processamento de voz com Gemini:", lastError);
-      res.status(500).json({ error: "Erro ao processar áudio: " + (lastError?.message || "Modelos indisponíveis") });
+      // Se foi enviado áudio puro e nenhum modelo conseguiu transcrever:
+      return res.status(422).json({
+        error: "Não foi possível transcrever o áudio gravado. Fale um pouco mais alto ou digite a venda.",
+      });
     } catch (err: any) {
       console.error("Erro geral na rota /api/transcribe-voice:", err);
       res.status(500).json({ error: "Erro interno no processamento de voz: " + (err.message || String(err)) });

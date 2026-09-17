@@ -123,7 +123,9 @@ jobs:
             if [ -n "$CLEAN_CALC" ] && [ "$CLEAN_CALC" = "$CLEAN_EXP" ]; then
               echo "✅ SUCESSO: O SHA-1 do APK bate exatamente com a chave cadastrada no Firebase!"
             else
-              echo "Aviso: SHA-1 gerado ($CALCULATED_SHA1) vs Esperado no Firebase ($EXPECTED_SHA1)."
+              echo "::error::SHA-1 gerado ($CALCULATED_SHA1) NÃO corresponde ao cadastrado no Firebase ($EXPECTED_SHA1)!"
+              echo "Isso impedirá o funcionamento do Login Google no APK instalado. Verifique se o secret ANDROID_KEYSTORE_BASE64 está correto."
+              exit 1
             fi
           fi
 
