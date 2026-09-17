@@ -14,6 +14,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { LembretesConfig } from "@/types";
+import { useAuth } from "@/context/AuthContext";
 import {
   getLembretesConfig,
   saveLembretesConfig,
@@ -32,6 +33,7 @@ const HORARIOS_FECHAMENTO_RAPIDOS = ["17:00", "17:30", "18:00", "18:30", "19:00"
 const HORARIOS_RITMO_RAPIDOS = ["13:30", "14:00", "14:30", "15:00", "16:00"];
 
 export function LembretesModal({ onClose, onOpenLancarVenda }: LembretesModalProps) {
+  const { user } = useAuth();
   const [config, setConfig] = useState<LembretesConfig>(getLembretesConfig());
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">(
     getNotificationPermission()
@@ -51,7 +53,7 @@ export function LembretesModal({ onClose, onOpenLancarVenda }: LembretesModalPro
   const handleRequestPermission = async () => {
     setTestStatus("Solicitando permissão...");
     try {
-      const result = await requestNotificationPermission();
+      const result = await requestNotificationPermission(user?.uid);
       setPermission(result);
 
       if (result === "granted") {
@@ -67,7 +69,6 @@ export function LembretesModal({ onClose, onOpenLancarVenda }: LembretesModalPro
           "As notificações estão bloqueadas no sistema/navegador. Nas 'Configurações do Celular' > 'Aplicativos' > 'Diário Serallê' > 'Notificações', ative a chave de notificações."
         );
       } else {
-        // Quando o sistema do Android não mostra prompt dinâmico ou permanece em 'default'
         setTestStatus(
           "Caso o aviso não apareça na tela, confirme se as notificações do app estão permitidas nas configurações do celular."
         );
@@ -176,13 +177,13 @@ export function LembretesModal({ onClose, onOpenLancarVenda }: LembretesModalPro
                 <Sparkles className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
                 <div className="space-y-1.5">
                   <p className="font-bold text-slate-900">
-                    Sons e alertas em tela continuam funcionando 100%!
+                    Notificações nativas suportadas no APK e navegador!
                   </p>
                   <p className="text-[10px] text-slate-600 leading-relaxed">
-                    <b>No celular Android (Xiaomi/MIUI):</b> Se o botão nas configurações do Android estiver cinza/bloqueado com a mensagem <i>"Este app não recebeu nenhuma notificação ainda"</i>, isso ocorre porque o instalador APK antigo não possui o canal de notificações registrado no sistema.
+                    No aplicativo Android, o canal nativo da <b>Serallê Calçados</b> agora é registrado automaticamente no sistema operacional e no Firebase Cloud Messaging (FCM).
                   </p>
                   <p className="text-[10px] text-blue-900 font-medium leading-relaxed bg-white/70 p-1.5 rounded-lg border border-blue-200/60">
-                    💡 <b>Como ativar notificações na barra do Android:</b> Abra o link no <b>Google Chrome</b> do celular, toque nos <b>3 pontinhos (⋮)</b> e selecione <b>"Instalar aplicativo"</b>. O Chrome libera automaticamente o canal de notificações do sistema!
+                    💡 Basta tocar em <b>"Permitir Agora"</b> acima para receber os avisos direto na barra de status do seu celular!
                   </p>
                 </div>
               </div>

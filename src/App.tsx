@@ -30,6 +30,7 @@ import {
   hasNotificationFiredToday,
   markNotificationFiredToday,
 } from "@/utils/notifications";
+import { initializeNativePushNotifications } from "@/lib/nativeNotifications";
 
 function MainApp() {
   const { getDiaTotais } = useVendas();
@@ -47,6 +48,15 @@ function MainApp() {
   const [lembretesModalOpen, setLembretesModalOpen] = useState(false);
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [cadastroModalOpen, setCadastroModalOpen] = useState(false);
+
+  // Inicialização de Notificações Nativas e FCM ao autenticar
+  useEffect(() => {
+    if (user?.uid) {
+      initializeNativePushNotifications(user.uid).catch((err) => {
+        console.warn("Aviso na inicialização das notificações nativas:", err);
+      });
+    }
+  }, [user?.uid]);
 
   // Ao fazer login com o Google e entrar, se ainda não informou a filial específica (ou cadastro não confirmado),
   // abre o modal de cadastro/filial na primeira vez na sessão para facilitar (ex: Serallê Cianorte).

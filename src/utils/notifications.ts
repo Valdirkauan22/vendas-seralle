@@ -1,4 +1,11 @@
 import { LembretesConfig, LEMBRETES_CONFIG_PADRAO } from "@/types";
+import { Capacitor } from "@capacitor/core";
+import { LocalNotifications } from "@capacitor/local-notifications";
+import { PushNotifications } from "@capacitor/push-notifications";
+import {
+  initializeNativePushNotifications,
+  sendCapacitorLocalNotification,
+} from "@/lib/nativeNotifications";
 
 const STORAGE_KEY = "@diario_vendas:lembretes_config_v1";
 const FIRED_TODAY_KEY = "@diario_vendas:lembretes_fired_today";
@@ -31,34 +38,62 @@ export function saveLembretesConfig(cfg: LembretesConfig): void {
 }
 
 /**
- * Verifica se a Web Notification API é suportada.
+ * Verifica se a notificação é suportada (Nativo Capacitor ou Web Notification API).
  */
 export function isNotificationSupported(): boolean {
-  return typeof window !== "undefined" && "Notification" in window;
+  if (typeof window === "undefined") return false;
+  if (Capacitor.isNativePlatform()) return true;
+  return "Notification" in window;
 }
 
 /**
  * Retorna o status atual da permissão de notificação.
  */
+export async function getNotificationPermissionAsync(): Promise<NotificationPermission | "unsupported"> {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const status = await PushNotifications.checkPermissions();
+      if (status.receive === "granted") return "granted";
+      if (status.receive === "denied") return "denied";
+      return "default";
+    } catch {
+      return "default";
+    }
+  }
+
+  if (!("Notification" in window)) return "unsupported";
+  return Notification.permission;
+}
+
 export function getNotificationPermission(): NotificationPermission | "unsupported" {
-  if (!isNotificationSupported()) return "unsupported";
+  if (Capacitor.isNativePlatform()) {
+    return "granted";
+  }
+  if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
   return Notification.permission;
 }
 
 /**
- * Solicita permissão para notificações nativas.
- * Suporta tanto a API baseada em Promise (navegadores modernos) quanto callback (Safari antigo / Android WebViews).
+ * Solicita permissão para notificações nativas (Capacitor ou Navegador).
  */
-export async function requestNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
-  if (!isNotificationSupported()) return "unsupported";
+export async function requestNotificationPermission(userId?: string | null): Promise<NotificationPermission | "unsupported"> {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const success = await initializeNativePushNotifications(userId);
+      return success ? "granted" : "denied";
+    } catch (e) {
+      console.warn("Erro ao solicitar no Capacitor:", e);
+      return "denied";
+    }
+  }
 
-  // Se já tiver uma resposta definitiva salva
+  if (!("Notification" in window)) return "unsupported";
+
   if (Notification.permission === "granted" || Notification.permission === "denied") {
     return Notification.permission;
   }
 
   try {
-    // Timeout de segurança de 10 segundos caso a WebView/Navegador trave a Promise silenciosamente
     const timeoutPromise = new Promise<NotificationPermission>((resolve) => {
       setTimeout(() => {
         resolve(Notification.permission);
@@ -89,7 +124,6 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 
 /**
  * Toca um sinal sonoro agradável e discreto de 2 tons (Chime Serallê)
- * usando a Web Audio API nativa (não requer arquivos externos).
  */
 export function playChimeNotification(): void {
   if (typeof window === "undefined") return;
@@ -134,7 +168,6 @@ export function playChimeNotification(): void {
     osc2.start(now + 0.14);
     osc2.stop(now + 0.62);
 
-    // Limpeza após terminar
     setTimeout(() => {
       try {
         ctx.close();
@@ -146,10 +179,10 @@ export function playChimeNotification(): void {
 }
 
 /**
- * Dispara uma notificação para o usuário.
- * 1. Sempre executa o sinal sonoro (se habilitado ou solicitado).
- * 2. Sempre emite evento interno no app para exibir o banner flutuante em tela.
- * 3. Se houver permissão concedida do sistema operacional/navegador, envia também na barra de status do celular.
+ * Dispara uma notificação para o usuário:
+ * 1. Som nativo/WebAudio
+ * 2. Banner in-app
+ * 3. Notificação nativa Android (via Capacitor Local/Push Notifications) ou Web Notification
  */
 export async function sendNativeNotification(
   title: string,
@@ -177,9 +210,19 @@ export async function sendNativeNotification(
     } catch {}
   }
 
-  // 3. Tenta disparar notificação nativa para a barra de status do Android/computador
+  // 3. Se for aplicativo Android Nativo (Capacitor)
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const ok = await sendCapacitorLocalNotification(title, options?.body || "Acesse o Diário Serallê para conferir.");
+      if (ok) return true;
+    } catch (e) {
+      console.warn("Erro ao disparar via Capacitor:", e);
+    }
+  }
+
+  // 4. Se for Web / PWA clássico
   if (!isNotificationSupported()) return false;
-  if (Notification.permission !== "granted") return false;
+  if (typeof Notification !== "undefined" && Notification.permission !== "granted") return false;
 
   const defaultOptions: NotificationOptions = {
     icon: "/icon-192.png?v=2",
@@ -189,7 +232,6 @@ export async function sendNativeNotification(
   };
 
   try {
-    // Tenta primeiro através do Service Worker registrado (ideal para PWA e mobile)
     if ("serviceWorker" in navigator) {
       const reg = await navigator.serviceWorker.getRegistration();
       if (reg && reg.showNotification) {
@@ -198,17 +240,14 @@ export async function sendNativeNotification(
       }
     }
 
-    // Fallback para new Notification clássico
-    new Notification(title, defaultOptions);
-    return true;
-  } catch (err) {
-    console.warn("Falha ao emitir notificação nativa do SO, tentando fallback:", err);
-    try {
+    if (typeof Notification !== "undefined") {
       new Notification(title, defaultOptions);
       return true;
-    } catch {
-      return false;
     }
+    return false;
+  } catch (err) {
+    console.warn("Falha ao emitir notificação no navegador:", err);
+    return false;
   }
 }
 

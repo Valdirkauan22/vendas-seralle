@@ -23,6 +23,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // server.ts
+var import_node_dns = __toESM(require("node:dns"), 1);
 var import_express = __toESM(require("express"), 1);
 var import_cors = __toESM(require("cors"), 1);
 var import_path = __toESM(require("path"), 1);
@@ -31,6 +32,7 @@ var import_vite = require("vite");
 var import_app = require("firebase-admin/app");
 var import_auth = require("firebase-admin/auth");
 var import_firestore = require("firebase-admin/firestore");
+import_node_dns.default.setDefaultResultOrder("ipv4first");
 var adminApp = (0, import_app.getApps)().length ? (0, import_app.getApps)()[0] : (0, import_app.initializeApp)({
   projectId: process.env.FIREBASE_PROJECT_ID || "serale-vendas"
 });
@@ -294,83 +296,167 @@ async function startServer() {
   });
   app.post("/api/transcribe-voice", apiRateLimiter, async (req, res) => {
     try {
-      const { audioBase64, mimeType, textInput } = req.body;
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({ error: "Chave GEMINI_API_KEY n\xE3o configurada no servidor." });
-      }
-      const { GoogleGenAI } = await import("@google/genai");
-      const ai = new GoogleGenAI({ apiKey });
-      const promptInstructions = `Voc\xEA \xE9 um assistente de vendas da loja de sapatos Serall\xEA Cal\xE7ados.
-Sua tarefa \xE9 analisar o \xE1udio ou texto falado pela vendedora e extrair os dados da venda.
-Voc\xEA DEVE responder ESTRITAMENTE em formato JSON com o seguinte schema:
-{
-  "valor": number (valor monet\xE1rio em reais, ex: 199.90 ou 250.00. Se n\xE3o informado ou zero, coloque 0),
-  "pares": number (n\xFAmero de pares de cal\xE7ados vendidos, n\xFAmero inteiro >= 1. Padr\xE3o 1),
-  "agregados": number (quantidade de itens agregados como meias, sprays, palmilhas, cintos, limpador. Padr\xE3o 0),
-  "categoria": "Feminino" | "Masculino" | "Infantil" | "Esportivo" | "Conforto" | "Acess\xF3rios",
-  "descricao": string (descri\xE7\xE3o curta e leg\xEDvel da venda, ex: "T\xEAnis Feminino + 1 Par de Meias"),
-  "transcricao": string (o texto exato que a vendedora falou)
-}
-Instru\xE7\xF5es para categoria:
-- Feminino: rasteira, sand\xE1lia, salto, scarpin, bota feminina, sapatilha, vizzano, moleca, dakota, via marte, beira rio.
-- Masculino: sapat\xEAnis, sapato social, bota masculina, ferracini, democrata, pegada.
-- Esportivo: t\xEAnis de corrida, academia, caminhada, olympikus, nike, mizuno, fila, asics.
-- Infantil: infantil, molekinha, molekinho, klin, bibi, kids, beb\xEA.
-- Conforto: usaflex, modare, ortop\xE9dico, campesi, piccadilly.
-- Acess\xF3rios: meias, palmilhas, sprays, bolsas, cintos, carteiras.
-Responda APENAS o JSON puro sem formata\xE7\xE3o markdown envolvente.`;
-      let contents;
-      if (audioBase64) {
-        contents = [
-          {
-            role: "user",
-            parts: [
-              {
-                inlineData: {
-                  mimeType: mimeType || "audio/webm",
-                  data: audioBase64
-                }
-              },
-              {
-                text: `${promptInstructions}
-
-Analise o \xE1udio enviado.`
-              }
-            ]
-          }
-        ];
-      } else if (textInput) {
-        contents = [
-          {
-            role: "user",
-            parts: [
-              {
-                text: `${promptInstructions}
-
-Texto recebido:
-"${textInput}"`
-              }
-            ]
-          }
-        ];
-      } else {
+      let { audioBase64, mimeType, textInput } = req.body;
+      const extractSaleFromText = (text) => {
+        let raw = (text || "").trim();
+        raw = raw.replace(/\b([a-zA-ZÀ-ÿ0-9]+\s+[a-zA-ZÀ-ÿ0-9]+(?:\s+[a-zA-ZÀ-ÿ0-9]+){0,3})\s+\1\b/gi, "$1");
+        raw = raw.replace(/\b([a-zA-ZÀ-ÿ0-9]+)(?:\s+\1\b)+/gi, "$1");
+        raw = raw.replace(/\s{2,}/g, " ").trim();
+        const lower = raw.toLowerCase();
+        let pares = 1;
+        const paresNumMatch = lower.match(/(\d+)\s*(par|pares)/i);
+        if (paresNumMatch && paresNumMatch[1]) {
+          pares = parseInt(paresNumMatch[1], 10) || 1;
+        } else if (lower.includes("dois pares") || lower.includes("duas pares")) {
+          pares = 2;
+        } else if (lower.includes("tr\xEAs pares") || lower.includes("tres pares")) {
+          pares = 3;
+        } else if (lower.includes("quatro pares")) {
+          pares = 4;
+        } else if (lower.includes("cinco pares")) {
+          pares = 5;
+        }
+        let agregados = 0;
+        const agMatch = lower.match(/(\d+)\s*(meia|meias|spray|sprays|palmilha|palmilhas|cinto|cintos|carteira|carteiras|agregado|agregados|limpador)/i);
+        if (agMatch && agMatch[1]) {
+          agregados = parseInt(agMatch[1], 10) || 1;
+        } else if (lower.includes("duas meias") || lower.includes("dois sprays") || lower.includes("duas palmilhas")) {
+          agregados = 2;
+        } else if (lower.includes("meia") || lower.includes("spray") || lower.includes("palmilha") || lower.includes("cinto") || lower.includes("carteira") || lower.includes("limpador")) {
+          agregados = 1;
+        }
+        let categoria = "Feminino";
+        if (lower.includes("masculin") || lower.includes("sapato social") || lower.includes("sapat\xEAnis") || lower.includes("bota masculina") || lower.includes("pegada") || lower.includes("ferracini") || lower.includes("democrata")) {
+          categoria = "Masculino";
+        } else if (lower.includes("infantil") || lower.includes("molekinh") || lower.includes("klin") || lower.includes("bibi") || lower.includes("kids") || lower.includes("beb\xEA")) {
+          categoria = "Infantil";
+        } else if (lower.includes("esport") || lower.includes("t\xEAnis") || lower.includes("corrida") || lower.includes("academia") || lower.includes("nike") || lower.includes("olympikus") || lower.includes("mizuno") || lower.includes("asics") || lower.includes("fila")) {
+          categoria = "Esportivo";
+        } else if (lower.includes("confort") || lower.includes("usaflex") || lower.includes("modare") || lower.includes("piccadilly") || lower.includes("campesi") || lower.includes("ortop\xE9dico")) {
+          categoria = "Conforto";
+        } else if (lower.includes("meia") || lower.includes("spray") || lower.includes("palmilha") || lower.includes("cinto") || lower.includes("bolsa") || lower.includes("carteira")) {
+          categoria = "Acess\xF3rios";
+        }
+        let valor = 0;
+        const moedaMatch = lower.match(/(?:r\$\s*)?(\d{1,4}(?:[.,]\d{2}))/i);
+        const reaisCentMatch = lower.match(/(\d+)\s*(?:reais|real)?\s*(?:e\s*(\d{1,2})\s*(?:centavos)?)?/i);
+        const reaisMatch = lower.match(/(\d+)\s*(?:reais|real)/i);
+        const generalMatch = lower.match(/\d+([.,]\d+)?/);
+        if (moedaMatch && moedaMatch[1]) {
+          valor = parseFloat(moedaMatch[1].replace(",", "."));
+        } else if (reaisMatch && reaisMatch[1]) {
+          valor = parseFloat(reaisMatch[1]);
+        } else if (reaisCentMatch && reaisCentMatch[1] && (lower.includes("real") || lower.includes("reais") || reaisCentMatch[2])) {
+          const inteiros = parseFloat(reaisCentMatch[1]) || 0;
+          const centavos = reaisCentMatch[2] ? parseInt(reaisCentMatch[2], 10) / (reaisCentMatch[2].length === 1 ? 10 : 100) : 0;
+          valor = inteiros + centavos;
+        } else if (generalMatch && generalMatch[0]) {
+          valor = parseFloat(generalMatch[0].replace(",", "."));
+        }
+        return {
+          valor: isNaN(valor) ? 0 : valor,
+          pares: isNaN(pares) ? 1 : pares,
+          agregados: isNaN(agregados) ? 0 : agregados,
+          categoria,
+          descricao: raw.slice(0, 60) || `${pares} par(es) ${categoria}`,
+          transcricao: raw
+        };
+      };
+      if (!audioBase64 && !textInput) {
         return res.status(400).json({ error: "Par\xE2metro 'audioBase64' ou 'textInput' \xE9 obrigat\xF3rio." });
       }
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents,
-        config: {
-          responseMimeType: "application/json"
+      const apiKey = process.env.GEMINI_API_KEY;
+      let ai = null;
+      if (apiKey) {
+        try {
+          const { GoogleGenAI } = await import("@google/genai");
+          ai = new GoogleGenAI({
+            apiKey,
+            httpOptions: {
+              headers: {
+                "User-Agent": "aistudio-build"
+              }
+            }
+          });
+        } catch (e) {
+          console.warn("N\xE3o foi poss\xEDvel carregar GoogleGenAI:", e);
         }
+      }
+      if (audioBase64 && !textInput && ai) {
+        try {
+          const transcribeRes = await Promise.race([
+            ai.models.generateContent({
+              model: "gemini-3.5-transcribe",
+              contents: {
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: mimeType || "audio/webm",
+                      data: audioBase64
+                    }
+                  },
+                  { text: "Transcreva este \xE1udio em portugu\xEAs do Brasil com exatid\xE3o." }
+                ]
+              }
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout transcri\xE7\xE3o")), 8e3))
+          ]);
+          if (transcribeRes?.text) {
+            textInput = transcribeRes.text.trim();
+          }
+        } catch (transcribeErr) {
+          console.warn("[Voice] gemini-3.5-transcribe falhou, tentando modelo multimodal alternativo:", transcribeErr.message || transcribeErr);
+        }
+      }
+      if (textInput && ai) {
+        const promptInstructions = `Voc\xEA \xE9 um assistente da loja Serall\xEA Cal\xE7ados. Extraia a venda deste texto em JSON estrito:
+{
+  "valor": number (valor em reais ex: 199.90. Se n\xE3o informado, 0),
+  "pares": number (>= 1, padr\xE3o 1),
+  "agregados": number (meias, sprays, etc, padr\xE3o 0),
+  "categoria": "Feminino" | "Masculino" | "Infantil" | "Esportivo" | "Conforto" | "Acess\xF3rios",
+  "descricao": string,
+  "transcricao": "${textInput.replace(/"/g, "'")}"
+}
+Texto: "${textInput}"`;
+        const candidateModels = ["gemini-flash-latest", "gemini-3.8-flash"];
+        for (const modelName of candidateModels) {
+          try {
+            const aiRes = await Promise.race([
+              ai.models.generateContent({
+                model: modelName,
+                contents: [{ role: "user", parts: [{ text: promptInstructions }] }],
+                config: { responseMimeType: "application/json" }
+              }),
+              new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6e3))
+            ]);
+            const clean = (aiRes.text || "").replace(/```json/g, "").replace(/```/g, "").trim();
+            const parsed = JSON.parse(clean);
+            if (parsed && (parsed.valor !== void 0 || parsed.categoria)) {
+              return res.json({
+                valor: Number(parsed.valor) || 0,
+                pares: Number(parsed.pares) || 1,
+                agregados: Number(parsed.agregados) || 0,
+                categoria: parsed.categoria || "Feminino",
+                descricao: parsed.descricao || textInput.slice(0, 60),
+                transcricao: parsed.transcricao || textInput
+              });
+            }
+          } catch (modelErr) {
+            console.warn(`[Voice] Modelo ${modelName} falhou:`, modelErr.message || modelErr);
+          }
+        }
+      }
+      if (textInput) {
+        const extracted = extractSaleFromText(textInput);
+        return res.json(extracted);
+      }
+      return res.status(422).json({
+        error: "N\xE3o foi poss\xEDvel transcrever o \xE1udio gravado. Fale um pouco mais alto ou digite a venda."
       });
-      const responseText = response.text || "{}";
-      const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-      const parsedData = JSON.parse(cleanJson);
-      res.json(parsedData);
     } catch (err) {
-      console.error("Erro no processamento de voz com Gemini:", err);
-      res.status(500).json({ error: "Erro ao processar \xE1udio: " + (err.message || String(err)) });
+      console.error("Erro geral na rota /api/transcribe-voice:", err);
+      res.status(500).json({ error: "Erro interno no processamento de voz: " + (err.message || String(err)) });
     }
   });
   app.post("/api/admin/set-role", apiRateLimiter, async (req, res) => {
