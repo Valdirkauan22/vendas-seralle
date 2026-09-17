@@ -89,7 +89,17 @@ jobs:
           mkdir -p android/app
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Decodificando keystore fixa do secret ANDROID_KEYSTORE_BASE64..."
-            echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+            # Remove quebras de linha Windows/Unix, espaços em branco e aspas acidentais antes de decodificar
+            CLEAN_B64=$(echo "$KEYSTORE_BASE64" | tr -d '\r\n "' | tr -d "'")
+            if echo "$CLEAN_B64" | base64 -d > android/app/release.keystore 2>/dev/null; then
+              echo "Keystore decodificada com sucesso."
+            elif echo "$CLEAN_B64" | base64 -di > android/app/release.keystore 2>/dev/null; then
+              echo "Keystore decodificada com sucesso (modo permissivo -di)."
+            else
+              echo "::error::Falha ao decodificar ANDROID_KEYSTORE_BASE64! O valor no secret não é um Base64 válido."
+              echo "Certifique-se de copiar a string gerada pelo comando do PowerShell sem cabeçalhos ou aspas."
+              exit 1
+            fi
           elif [ -f "android/app/release.keystore" ]; then
             echo "Keystore fixa localizada no repositório em android/app/release.keystore."
           else
