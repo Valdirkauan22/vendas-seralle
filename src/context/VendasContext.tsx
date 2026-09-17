@@ -62,6 +62,12 @@ function getStorageKeys(profileId: string) {
   };
 }
 
+function criarTimestampPosterior(timestampAnterior?: string): string {
+  const anteriorMs = timestampAnterior ? new Date(timestampAnterior).getTime() : 0;
+  const baseAnterior = Number.isFinite(anteriorMs) ? anteriorMs + 1 : 0;
+  return new Date(Math.max(Date.now(), baseAnterior)).toISOString();
+}
+
 export function VendasProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const {
@@ -257,7 +263,10 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
   // Persist dias locally and to Firestore
   const persistDias = useCallback(
     async (newDias: Record<string, DiaVenda>, updatedData?: string) => {
-      const nowIso = new Date().toISOString();
+      const timestampAnterior = updatedData
+        ? newDias[updatedData]?.updatedAt || diasRef.current[updatedData]?.updatedAt
+        : undefined;
+      const nowIso = criarTimestampPosterior(timestampAnterior);
       const updatedDias = { ...newDias };
       if (updatedData && updatedDias[updatedData]) {
         updatedDias[updatedData] = {
@@ -268,6 +277,10 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
       }
 
       diasRef.current = updatedDias;
+      // Estado, referência e armazenamento devem receber exatamente o mesmo snapshot.
+      // Antes, o estado recebia `newDias` sem o novo updatedAt e o useEffect acabava
+      // sobrescrevendo diasRef com a versão antiga antes do auto-sync.
+      setDias(updatedDias);
       const { diasKey } = getStorageKeys(profileId);
       localStorage.setItem(diasKey, JSON.stringify(updatedDias));
 
@@ -320,6 +333,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         };
       }
 
+      configsRef.current = updatedConfigs;
       setConfigs(updatedConfigs);
       const { configsKey } = getStorageKeys(profileId);
       localStorage.setItem(configsKey, JSON.stringify(updatedConfigs));
@@ -852,7 +866,6 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         },
       };
 
-      setDias(newDias);
       await persistDias(newDias, data);
     },
     [persistDias]
@@ -888,7 +901,6 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         },
       };
 
-      setDias(newDias);
       await persistDias(newDias, data);
     },
     [persistDias]
@@ -908,7 +920,6 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         },
       };
 
-      setDias(newDias);
       await persistDias(newDias, data);
     },
     [persistDias]
@@ -930,7 +941,6 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           itens: novosItens,
         };
       }
-      setDias(newDias);
       await persistDias(newDias, data);
     },
     [persistDias]
@@ -947,7 +957,6 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           margem,
         },
       };
-      setDias(newDias);
       await persistDias(newDias, data);
     },
     [persistDias]
@@ -964,7 +973,6 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           atendimentosTotais: Math.max(0, atendimentos),
         },
       };
-      setDias(newDias);
       await persistDias(newDias, data);
     },
     [persistDias]
@@ -981,7 +989,6 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           anotacoes,
         },
       };
-      setDias(newDias);
       await persistDias(newDias, data);
     },
     [persistDias]
@@ -999,7 +1006,6 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
           folga: newFolga,
         },
       };
-      setDias(newDias);
       await persistDias(newDias, data);
     },
     [persistDias]
@@ -1010,7 +1016,6 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
       const currentDias = diasRef.current;
       const newDias = { ...currentDias };
       delete newDias[data];
-      setDias(newDias);
       await persistDias(newDias, data);
     },
     [persistDias]
