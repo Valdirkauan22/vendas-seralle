@@ -218,8 +218,10 @@ export function reconciliarDiasVenda(
         reconciliados[dataKey] = rDia;
       }
     } else {
-      const localTime = lDia.updatedAt ? new Date(lDia.updatedAt).getTime() : 0;
-      const remoteTime = rDia.updatedAt ? new Date(rDia.updatedAt).getTime() : 0;
+      const localParsed = lDia.updatedAt ? new Date(lDia.updatedAt).getTime() : 0;
+      const remoteParsed = rDia.updatedAt ? new Date(rDia.updatedAt).getTime() : 0;
+      const localTime = Number.isFinite(localParsed) ? localParsed : 0;
+      const remoteTime = Number.isFinite(remoteParsed) ? remoteParsed : 0;
 
       if (remoteTime > localTime) {
         if (rDia.deletedAt) {
@@ -230,7 +232,9 @@ export function reconciliarDiasVenda(
       } else if (localTime > remoteTime) {
         chavesParaEnviarRemoto.push(dataKey);
       } else {
-        reconciliados[dataKey] = rDia;
+        // Em empate, preserva o snapshot local. Ele pode conter uma alteração
+        // recém-salva ainda não propagada; preferir o remoto aqui causava rollback.
+        chavesParaEnviarRemoto.push(dataKey);
       }
     }
   });
@@ -260,8 +264,10 @@ export function reconciliarConfigsMes(
         reconciliados[mesKey] = rConfig;
       }
     } else {
-      const localTime = lConfig.updatedAt ? new Date(lConfig.updatedAt).getTime() : 0;
-      const remoteTime = rConfig.updatedAt ? new Date(rConfig.updatedAt).getTime() : 0;
+      const localParsed = lConfig.updatedAt ? new Date(lConfig.updatedAt).getTime() : 0;
+      const remoteParsed = rConfig.updatedAt ? new Date(rConfig.updatedAt).getTime() : 0;
+      const localTime = Number.isFinite(localParsed) ? localParsed : 0;
+      const remoteTime = Number.isFinite(remoteParsed) ? remoteParsed : 0;
 
       if (remoteTime > localTime) {
         if (rConfig.deletedAt) {
@@ -272,7 +278,7 @@ export function reconciliarConfigsMes(
       } else if (localTime > remoteTime) {
         chavesParaEnviarRemoto.push(mesKey);
       } else {
-        reconciliados[mesKey] = rConfig;
+        chavesParaEnviarRemoto.push(mesKey);
       }
     }
   });
