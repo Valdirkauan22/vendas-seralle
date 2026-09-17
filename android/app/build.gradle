@@ -31,9 +31,13 @@ android {
                 def sAlias = System.getenv("KEY_ALIAS")
                 def kPassword = System.getenv("KEY_PASSWORD")
 
-                storePassword ((sPassword && !sPassword.trim().isEmpty()) ? sPassword : (project.findProperty('RELEASE_STORE_PASSWORD') ?: "android"))
-                keyAlias ((sAlias && !sAlias.trim().isEmpty()) ? sAlias : (project.findProperty('RELEASE_KEY_ALIAS') ?: "androiddebugkey"))
-                keyPassword ((kPassword && !kPassword.trim().isEmpty()) ? kPassword : (project.findProperty('RELEASE_KEY_PASSWORD') ?: "android"))
+                def effectiveStorePass = (sPassword && !sPassword.trim().isEmpty()) ? sPassword : (project.findProperty('RELEASE_STORE_PASSWORD') ?: "android")
+                def effectiveKeyPass = (kPassword && !kPassword.trim().isEmpty()) ? kPassword : effectiveStorePass
+                def effectiveAlias = (sAlias && !sAlias.trim().isEmpty()) ? sAlias : (project.findProperty('RELEASE_KEY_ALIAS') ?: "key0")
+
+                storePassword effectiveStorePass
+                keyAlias effectiveAlias
+                keyPassword effectiveKeyPass
             }
         }
     }
