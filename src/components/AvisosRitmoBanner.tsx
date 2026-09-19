@@ -10,6 +10,7 @@ import {
   Sparkles,
   Sliders,
   Award,
+  Target,
 } from "lucide-react";
 import { useVendas } from "@/context/VendasContext";
 import { formatMoeda, getDataHoje, getMesAtualId } from "@/utils/formatters";
@@ -162,7 +163,7 @@ export function AvisosRitmoBanner({
                   )}
                 </span>
                 <span className="text-[10px] font-bold text-slate-400 hidden md:inline">
-                  • Meta do dia: {formatMoeda(ritmoDiarioValor)} ({ritmoDiarioPares} pares)
+                  • Meta do dia: {formatMoeda(ritmoDiarioValor)} ({ritmoDiarioPares} pares) • Faltam {formatMoeda(faltaValorTotal)} para a {proximaCota.label}
                 </span>
               </div>
 

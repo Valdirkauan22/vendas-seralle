@@ -412,4 +412,51 @@ describe("Fluxo Completo de Sincronização e Prevenção de Sobrescrita (Pull-F
     expect(resultado.reconciliados["2026-09-17"].itens[0].id).toBe("novo");
     expect(resultado.chavesParaEnviarRemoto).toContain("2026-09-17");
   });
+
+  it("garante que edição ou inserção recente NÃO é sobrescrita por dados anteriores da nuvem", () => {
+    const profileId = "vendedora-01";
+    const syncCode = "SERALLE-SYNC-777";
+    const cloudPayload = {
+      perfisData: {
+        [profileId]: {
+          profileId,
+          nome: "Vendedora Teste",
+          dias: {
+            "2026-09-18": {
+              itens: [{ id: "item-1", valor: 120, pares: 1, hora: "10:00", descricao: "Sandália" }],
+              margem: 40,
+              updatedAt: "2026-09-18T10:00:00.000Z",
+            },
+          },
+          configs: {},
+        },
+      },
+    };
+
+    const localDiasAposEdicao: Record<string, DiaVenda> = {
+      "2026-09-18": {
+        itens: [
+          { id: "item-1", valor: 120, pares: 1, hora: "10:00", descricao: "Sandália" },
+          { id: "item-2", valor: 130, pares: 1, hora: "10:30", descricao: "Tênis" },
+        ],
+        margem: 45,
+        updatedAt: "2026-09-18T10:30:00.000Z",
+      },
+    };
+
+    const resultado = simularSincronizarAgora({
+      profileId,
+      syncCode,
+      localDias: localDiasAposEdicao,
+      localConfigs: {},
+      cloudPayload,
+    });
+
+    const diaReconciliado = resultado.diasReconciliados["2026-09-18"];
+    expect(diaReconciliado).toBeDefined();
+    expect(diaReconciliado.itens).toHaveLength(2);
+    expect(diaReconciliado.itens[1].descricao).toBe("Tênis");
+    expect(diaReconciliado.margem).toBe(45);
+    expect(resultado.finalCloudUploadPayload.perfisData[profileId].dias["2026-09-18"].itens).toHaveLength(2);
+  });
 });

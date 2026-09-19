@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, Check, Coffee } from "lucide-react";
+import { Plus, Check, Coffee, Trophy } from "lucide-react";
 import { useVendas } from "@/context/VendasContext";
 import {
   DIAS_SEMANA_ABREV,
@@ -33,6 +33,15 @@ export function HistoricoCalendarioView({
   // Generate day numbers array
   const dayNumbers = Array.from({ length: totalDias }, (_, i) => i + 1);
 
+  // Find best sales day of month (Recorde do Mês)
+  const melhorDiaDataStr = Object.entries(dias)
+    .filter(([d, val]) => d.startsWith(mesId) && val.itens && val.itens.length > 0)
+    .map(([dataStr, val]) => ({
+      dataStr,
+      valor: val.itens.reduce((sum, item) => sum + item.valor, 0),
+    }))
+    .sort((a, b) => b.valor - a.valor)[0]?.dataStr;
+
   return (
     <div className="space-y-6">
       <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-xs">
@@ -50,6 +59,10 @@ export function HistoricoCalendarioView({
             <span className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded-md bg-emerald-100 border border-emerald-300 inline-block" />
               Com Vendas
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-md bg-amber-400 border border-amber-500 inline-block" />
+              Recorde do Mês
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded-md bg-amber-100 border border-amber-300 inline-block" />
@@ -100,6 +113,7 @@ export function HistoricoCalendarioView({
             const paresTotalDia = temVendas
               ? diaData.itens.reduce((acc, i) => acc + i.pares, 0)
               : 0;
+            const isRecorde = temVendas && dataStr === melhorDiaDataStr && valorTotalDia > 0;
 
             return (
               <button
@@ -108,6 +122,8 @@ export function HistoricoCalendarioView({
                 className={`min-h-[75px] sm:min-h-[95px] p-2 rounded-xl border text-left transition-all relative flex flex-col justify-between group hover:shadow-md ${
                   isToday
                     ? "border-blue-500 ring-2 ring-blue-400/30 bg-blue-50/30"
+                    : isRecorde
+                    ? "border-amber-400 ring-2 ring-amber-300/40 bg-amber-50/50 hover:border-amber-500"
                     : isFolga
                     ? "border-amber-200 bg-amber-50/40 hover:border-amber-300"
                     : temVendas
@@ -121,6 +137,8 @@ export function HistoricoCalendarioView({
                     className={`text-xs sm:text-sm font-extrabold w-6 h-6 rounded-full flex items-center justify-center ${
                       isToday
                         ? "bg-blue-700 text-white shadow-xs"
+                        : isRecorde
+                        ? "bg-amber-500 text-white shadow-xs"
                         : isFolga
                         ? "text-amber-900 bg-amber-200/80"
                         : temVendas
@@ -135,6 +153,11 @@ export function HistoricoCalendarioView({
                     <span className="flex items-center gap-0.5 text-[10px] font-bold text-amber-700">
                       <Coffee className="w-3 h-3" />
                       <span className="hidden sm:inline">Folga</span>
+                    </span>
+                  ) : isRecorde ? (
+                    <span className="inline-flex items-center gap-0.5 text-[10px] font-black text-amber-700 bg-amber-100 px-1 py-0.2 rounded">
+                      <Trophy className="w-3 h-3 text-amber-600" />
+                      <span className="hidden sm:inline">Recorde</span>
                     </span>
                   ) : temVendas ? (
                     <span className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700">

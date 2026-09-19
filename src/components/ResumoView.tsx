@@ -26,6 +26,8 @@ import {
   Sliders,
   Flame,
   Store,
+  Target,
+  Trophy,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { useVendas } from "@/context/VendasContext";
@@ -216,6 +218,16 @@ export function ResumoView({ mesId, onOpenDia, onOpenMetas, onOpenLembretes }: R
     .filter(([d, val]) => d.startsWith(mesId) && val.itens.length > 0)
     .sort(([a], [b]) => b.localeCompare(a))
     .slice(0, 5);
+
+  // Record day of month (Melhor dia de vendas do mês)
+  const recordeDiaMes = Object.entries(dias)
+    .filter(([d, val]) => d.startsWith(mesId) && val.itens.length > 0)
+    .map(([dataStr, val]) => ({
+      dataStr,
+      valor: val.itens.reduce((sum, item) => sum + item.valor, 0),
+      pares: val.itens.reduce((sum, item) => sum + item.pares, 0),
+    }))
+    .sort((a, b) => b.valor - a.valor)[0] || null;
 
   // WhatsApp Share Generator
   const handleCompartilharWhatsApp = () => {
@@ -549,89 +561,114 @@ _Enviado pelo Diário de Vendas Serallê_`;
 
           {/* Cotas Cards Grid (2x2 on mobile, 4x1 on desktop) */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
-            {cotasStatus.map((cota) => (
-              <div
-                key={cota.key}
-                style={{
-                  borderColor: cota.atingiuValor ? `${cota.cor}60` : undefined,
-                }}
-                className={`p-3 sm:p-4 rounded-xl border transition-all flex flex-col justify-between ${
-                  cota.atingiuValor
-                    ? `${cota.lightBg} border-2 shadow-2xs`
-                    : "bg-slate-50/70 border-slate-200"
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 sm:gap-2">
-                      <div
-                        style={{ backgroundColor: cota.cor }}
-                        className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full"
-                      />
-                      <span className="text-xs sm:text-sm font-bold text-slate-900">
-                        {cota.label}
-                      </span>
+            {cotasStatus.map((cota) => {
+              const isProximoAlvo = proximaCota?.key === cota.key;
+
+              return (
+                <div
+                  key={cota.key}
+                  style={{
+                    borderColor: cota.atingiuValor ? `${cota.cor}60` : undefined,
+                  }}
+                  className={`p-3 sm:p-4 rounded-xl border transition-all flex flex-col justify-between relative ${
+                    cota.atingiuValor
+                      ? `${cota.lightBg} border-2 shadow-2xs`
+                      : isProximoAlvo
+                      ? "bg-blue-50/40 border-2 border-blue-400 ring-2 ring-blue-400/20 shadow-xs"
+                      : "bg-slate-50/70 border-slate-200"
+                  }`}
+                >
+                  {isProximoAlvo && (
+                    <div className="absolute -top-2.5 right-3 px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-black uppercase tracking-wide shadow-xs flex items-center gap-1">
+                      <Target className="w-2.5 h-2.5" />
+                      <span>Próximo Alvo</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 sm:gap-2">
+                        <div
+                          style={{ backgroundColor: cota.cor }}
+                          className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full"
+                        />
+                        <span className="text-xs sm:text-sm font-bold text-slate-900">
+                          {cota.label}
+                        </span>
+                      </div>
+
+                      {cota.atingiuValor ? (
+                        <span
+                          style={{ color: cota.cor }}
+                          className="inline-flex items-center gap-0.5 text-[10px] sm:text-xs font-extrabold"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Atingida</span>
+                        </span>
+                      ) : (
+                        <span className={`text-[10px] sm:text-[11px] font-bold ${isProximoAlvo ? "text-blue-700" : "text-slate-500"}`}>
+                          {cota.pctValor.toFixed(0)}%
+                        </span>
+                      )}
                     </div>
 
-                    {cota.atingiuValor ? (
-                      <span
-                        style={{ color: cota.cor }}
-                        className="inline-flex items-center gap-0.5 text-[10px] sm:text-xs font-extrabold"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Atingida</span>
-                      </span>
-                    ) : (
-                      <span className="text-[10px] sm:text-[11px] font-semibold text-slate-400">
-                        {cota.pctValor.toFixed(0)}%
-                      </span>
-                    )}
+                    <div className="mt-2.5 space-y-1 text-[11px] sm:text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500 font-medium">Meta:</span>
+                        <span className="font-bold text-slate-800">
+                          {formatMoeda(cota.target.valor)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500 font-medium">Pares:</span>
+                        <span className="font-bold text-slate-800">
+                          {cota.target.pares} p.
+                        </span>
+                      </div>
+                      {cota.premio > 0 && (
+                        <div className="flex justify-between text-[10px] sm:text-xs text-amber-800 font-semibold bg-amber-50/80 px-1.5 py-0.5 rounded-md">
+                          <span className="flex items-center gap-0.5 truncate">
+                            <Gift className="w-3 h-3 text-amber-600 shrink-0" />
+                            Prêmio:
+                          </span>
+                          <span className="font-bold truncate">{formatMoeda(cota.premio)}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="mt-2.5 space-y-1 text-[11px] sm:text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500 font-medium">Meta:</span>
-                      <span className="font-bold text-slate-800">
-                        {formatMoeda(cota.target.valor)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500 font-medium">Pares:</span>
-                      <span className="font-bold text-slate-800">
-                        {cota.target.pares} p.
-                      </span>
-                    </div>
-                    {cota.premio > 0 && (
-                      <div className="flex justify-between text-[10px] sm:text-xs text-amber-800 font-semibold bg-amber-50/80 px-1.5 py-0.5 rounded-md">
-                        <span className="flex items-center gap-0.5 truncate">
-                          <Gift className="w-3 h-3 text-amber-600 shrink-0" />
-                          Prêmio:
-                        </span>
-                        <span className="font-bold truncate">{formatMoeda(cota.premio)}</span>
+                  {/* Remaining status and mini progress */}
+                  <div className="pt-2 mt-2 border-t border-slate-200/60">
+                    {!cota.atingiuValor && (
+                      <div>
+                        {/* Mini progress bar */}
+                        <div className="w-full bg-slate-200 rounded-full h-1.5 mb-1.5 overflow-hidden">
+                          <div
+                            style={{
+                              width: `${Math.min(cota.pctValor, 100)}%`,
+                              backgroundColor: isProximoAlvo ? "#2563EB" : cota.cor,
+                            }}
+                            className="h-full rounded-full transition-all duration-500"
+                          />
+                        </div>
+                        <div className="text-[10px] sm:text-xs font-semibold text-slate-600 flex items-center justify-between">
+                          <span>Falta:</span>
+                          <span className="text-blue-700 font-extrabold truncate">
+                            {formatMoeda(cota.faltaValor)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {cota.atingiuValor && (
+                      <div className="text-[10px] sm:text-xs font-bold text-emerald-700 flex items-center justify-between">
+                        <span className="truncate">Superada:</span>
+                        <span className="truncate">+{formatMoeda(totalMes.valor - cota.target.valor)}</span>
                       </div>
                     )}
                   </div>
                 </div>
-
-                {/* Remaining status */}
-                <div>
-                  {!cota.atingiuValor && (
-                    <div className="pt-2 mt-2 border-t border-slate-200/60 text-[10px] sm:text-xs font-semibold text-slate-600 flex items-center justify-between">
-                      <span>Falta:</span>
-                      <span className="text-blue-700 font-bold truncate">
-                        {formatMoeda(cota.faltaValor)}
-                      </span>
-                    </div>
-                  )}
-                  {cota.atingiuValor && (
-                    <div className="pt-2 mt-2 border-t border-emerald-200/60 text-[10px] sm:text-xs font-bold text-emerald-700 flex items-center justify-between">
-                      <span className="truncate">Superada:</span>
-                      <span className="truncate">+{formatMoeda(totalMes.valor - cota.target.valor)}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Next Goal Milestone Incentive Banner */}
@@ -880,6 +917,32 @@ _Enviado pelo Diário de Vendas Serallê_`;
                     </span>
                   </div>
                 </div>
+
+                {/* Melhor Dia de Vendas do Mês (Gamificação) */}
+                {recordeDiaMes && recordeDiaMes.valor > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenDia(recordeDiaMes.dataStr)}
+                    className="w-full flex items-center justify-between p-2.5 rounded-xl bg-amber-50/70 hover:bg-amber-100/70 border border-amber-200 text-xs transition-colors cursor-pointer text-left group"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-110 transition-transform">
+                        <Trophy className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <span className="text-amber-950 font-bold block">
+                          Recorde do Mês ({formatDataCurta(recordeDiaMes.dataStr)})
+                        </span>
+                        <span className="text-[11px] text-amber-800 font-medium">
+                          {recordeDiaMes.pares} pares vendidos no melhor dia
+                        </span>
+                      </div>
+                    </div>
+                    <span className="font-extrabold text-amber-950 text-sm">
+                      {formatMoeda(recordeDiaMes.valor)}
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
           </div>

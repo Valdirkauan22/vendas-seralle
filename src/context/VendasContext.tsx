@@ -190,8 +190,10 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
                     // Local é mais recente: agenda para subir ao Firestore
                     localKeysToPush.push(dataKey);
                   } else {
-                    // Timestamps iguais: prioriza remoto consistente
-                    merged[dataKey] = fDia;
+                    // Em empate, preserva a edição local recém-feita e agenda
+                    // o envio para garantir que a nuvem também convirja.
+                    merged[dataKey] = existingLocal;
+                    localKeysToPush.push(dataKey);
                   }
                 }
               });
